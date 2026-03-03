@@ -1,18 +1,33 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+let client: SupabaseClient | null = null;
 
-const normalizedSupabaseUrl = normalizeSupabaseUrl(supabaseUrl);
+function getSupabaseClient(): SupabaseClient {
+  if (client) {
+    return client;
+  }
 
-if (!normalizedSupabaseUrl || !supabaseAnonKey) {
-  console.warn("Supabase env vars are missing. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.");
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+  const normalizedSupabaseUrl = normalizeSupabaseUrl(supabaseUrl);
+
+  if (!normalizedSupabaseUrl || !supabaseAnonKey) {
+    throw new Error("Supabase env vars are missing. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.");
+  }
+
+  client = createClient(normalizedSupabaseUrl, supabaseAnonKey, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true
+    }
+  });
+
+  return client;
 }
 
-export const supabase = createClient(normalizedSupabaseUrl, supabaseAnonKey, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true
+export const supabase = new Proxy({} as SupabaseClient, {
+  get(_target, prop) {
+    return getSupabaseClient()[prop as keyof SupabaseClient];
   }
 });
 
