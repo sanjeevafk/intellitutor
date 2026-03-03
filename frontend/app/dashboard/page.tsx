@@ -104,8 +104,23 @@ export default function DashboardPage() {
               id="grade"
               type="number"
               inputMode="numeric"
+              min={0}
+              max={12}
+              step={1}
               value={filters.grade}
-              onChange={(event) => setFilters((prev) => ({ ...prev, grade: event.target.value }))}
+              onChange={(event) => {
+                const raw = event.target.value;
+                if (raw === "") {
+                  setFilters((prev) => ({ ...prev, grade: "" }));
+                  return;
+                }
+                const parsed = Number.parseInt(raw, 10);
+                if (Number.isNaN(parsed)) {
+                  return;
+                }
+                const clamped = Math.max(0, Math.min(12, parsed));
+                setFilters((prev) => ({ ...prev, grade: clamped.toString() }));
+              }}
               placeholder="e.g. 7"
             />
           </div>
