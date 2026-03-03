@@ -23,13 +23,15 @@ export function requireEnv(): EnvConfig {
   const geminiApiKey = (process.env.GEMINI_API_KEY ?? "").trim();
   const upstashRedisUrl = (process.env.UPSTASH_REDIS_REST_URL ?? "").trim();
   const upstashRedisToken = (process.env.UPSTASH_REDIS_REST_TOKEN ?? "").trim();
+  const geminiTestMode = (process.env.GEMINI_TEST_MODE ?? "").trim() === "1";
+  const rateLimitTestMode = (process.env.RATE_LIMIT_TEST_MODE ?? "").trim() === "1";
 
   const missing: string[] = [];
   if (!supabaseUrl) missing.push("SUPABASE_URL");
   if (!supabaseAnonKey) missing.push("SUPABASE_ANON_KEY");
-  if (!geminiApiKey) missing.push("GEMINI_API_KEY");
-  if (!upstashRedisUrl) missing.push("UPSTASH_REDIS_REST_URL");
-  if (!upstashRedisToken) missing.push("UPSTASH_REDIS_REST_TOKEN");
+  if (!geminiApiKey && !geminiTestMode) missing.push("GEMINI_API_KEY");
+  if (!upstashRedisUrl && !rateLimitTestMode) missing.push("UPSTASH_REDIS_REST_URL");
+  if (!upstashRedisToken && !rateLimitTestMode) missing.push("UPSTASH_REDIS_REST_TOKEN");
 
   if (missing.length > 0) {
     throw new Error(`Missing required env vars: ${missing.join(", ")}`);

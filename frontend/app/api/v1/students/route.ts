@@ -59,12 +59,30 @@ export const GET = withRoute(async ({ request, requestId }) => {
     });
 
     if (lastNotesError) {
-      throw new ApiError(500, "failed to fetch student notes", lastNotesError);
-    }
+      if (isMissingFunctionError(lastNotesError)) {
+        const { data: notes, error: notesError } = await supabase
+          .from("student_notes")
+          .select("student_id, created_at")
+          .in("student_id", studentIds)
+          .order("created_at", { ascending: false });
 
-    for (const note of lastNotes ?? []) {
-      if (note.student_id) {
-        lastNoteByStudent.set(note.student_id, note.last_note_at ?? null);
+        if (notesError) {
+          throw new ApiError(500, "failed to fetch student notes", notesError);
+        }
+
+        for (const note of notes ?? []) {
+          if (!lastNoteByStudent.has(note.student_id)) {
+            lastNoteByStudent.set(note.student_id, note.created_at ?? null);
+          }
+        }
+      } else {
+        throw new ApiError(500, "failed to fetch student notes", lastNotesError);
+      }
+    } else {
+      for (const note of lastNotes ?? []) {
+        if (note.student_id) {
+          lastNoteByStudent.set(note.student_id, note.last_note_at ?? null);
+        }
       }
     }
   }
@@ -88,4 +106,13 @@ export async function OPTIONS(request: Request) {
       "x-request-id": requestId
     }
   });
+}
+
+function isMissingFunctionError(error: { code?: string; message?: string }) {
+  const code = error.code ?? "";
+  if (code === "PGRST202" || code === "42883") {
+    return true;
+  }
+  const message = (error.message ?? "").toLowerCase();
+  return message.includes("function") && message.includes("get_latest_notes") && message.includes("does not exist");
 }
