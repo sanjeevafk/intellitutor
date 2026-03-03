@@ -2,6 +2,7 @@
 -- Run this in Supabase SQL editor or via migration tooling.
 
 create extension if not exists "pgcrypto";
+create extension if not exists "pg_trgm";
 
 create table if not exists teachers (
   id uuid primary key references auth.users(id) on delete cascade,
@@ -62,6 +63,7 @@ create index if not exists idx_students_teacher_id on students(teacher_id);
 create index if not exists idx_students_academic_year on students(academic_year);
 create index if not exists idx_students_current_grade on students(current_grade);
 create index if not exists idx_students_created_at on students(created_at);
+create index if not exists idx_students_full_name_trgm on students using gin (full_name gin_trgm_ops);
 
 create index if not exists idx_student_notes_student_id on student_notes(student_id);
 create index if not exists idx_student_notes_teacher_id on student_notes(teacher_id);
@@ -77,6 +79,18 @@ create index if not exists idx_monthly_reports_month on monthly_reports(month);
 
 create index if not exists idx_schedule_slots_teacher_id on schedule_slots(teacher_id);
 create index if not exists idx_schedule_slots_day on schedule_slots(day_of_week);
+
+-- Helper function for last note per student
+create or replace function get_latest_notes(student_ids uuid[])
+  returns table(student_id uuid, last_note_at timestamptz)
+  language sql
+  security invoker
+as $$
+  select n.student_id, max(n.created_at) as last_note_at
+  from student_notes n
+  where n.student_id = any(student_ids)
+  group by n.student_id;
+$$;
 
 -- RLS
 alter table teachers enable row level security;
