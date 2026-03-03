@@ -10,7 +10,7 @@ type NoteInput = {
 
 export const GET = withRoute(async ({ request, params, requestId }) => {
   const { supabase, userId } = await requireAuth(request);
-  const studentId = params?.studentId;
+  const studentId = getStudentId(params, request);
   if (!studentId) {
     throw new ApiError(400, "missing student_id");
   }
@@ -33,7 +33,7 @@ export const GET = withRoute(async ({ request, params, requestId }) => {
 
 export const POST = withRoute(async ({ request, params, requestId }) => {
   const { supabase, userId } = await requireAuth(request);
-  const studentId = params?.studentId;
+  const studentId = getStudentId(params, request);
   if (!studentId) {
     throw new ApiError(400, "missing student_id");
   }
@@ -44,7 +44,7 @@ export const POST = withRoute(async ({ request, params, requestId }) => {
   } catch {
     throw new ApiError(400, "invalid JSON payload");
   }
-  const content = body.content?.trim();
+  const content = typeof body.content === "string" ? body.content.trim() : "";
   const tag = body.tag?.trim() || null;
 
   if (!content) {
@@ -71,3 +71,16 @@ export const POST = withRoute(async ({ request, params, requestId }) => {
   response.headers.set("x-request-id", requestId);
   return response;
 });
+
+function getStudentId(params: Record<string, string> | undefined, request: Request): string | null {
+  if (params?.studentId) {
+    return params.studentId;
+  }
+  const pathname = new URL(request.url).pathname;
+  const segments = pathname.split("/").filter(Boolean);
+  const idx = segments.indexOf("students");
+  if (idx !== -1 && segments.length > idx + 1) {
+    return segments[idx + 1] ?? null;
+  }
+  return null;
+}
