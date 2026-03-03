@@ -6,10 +6,14 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:integration": "node scripts/integration.test.mjs"
   },
   "dependencies": {
+    "@google/genai": "^1.1.0",
     "@supabase/supabase-js": "^2.98.0",
+    "@upstash/ratelimit": "^2.0.5",
+    "@upstash/redis": "^1.34.6",
     "next": "^16.1.6",
     "react": "18.2.0",
     "react-dom": "18.2.0"
