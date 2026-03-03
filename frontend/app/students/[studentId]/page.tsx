@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { buildApiUrl } from "@/lib/apiClient";
 
@@ -34,9 +34,11 @@ type WeeklySummary = {
 
 const EDIT_WINDOW_MS = 15 * 60 * 1000;
 
-export default function StudentDetailPage({ params }: { params: { studentId: string } }) {
+export default function StudentDetailPage() {
   const router = useRouter();
-  const studentId = params.studentId;
+  const params = useParams();
+  const studentIdParam = params?.studentId;
+  const studentId = Array.isArray(studentIdParam) ? studentIdParam[0] : studentIdParam;
   const [loading, setLoading] = useState(true);
   const [student, setStudent] = useState<Student | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
@@ -62,6 +64,11 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
     const loadStudent = async () => {
       setLoading(true);
       setLoadError(null);
+      if (!studentId) {
+        setLoadError("Missing student id.");
+        setLoading(false);
+        return;
+      }
       const { data } = await supabase.auth.getSession();
       const session = data.session;
 
@@ -110,6 +117,10 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
   }, [router, studentId]);
 
   const handleAddNote = async () => {
+    if (!studentId) {
+      setActionError("Missing student id.");
+      return;
+    }
     if (!noteContent.trim()) {
       setActionError("Note content is required");
       return;
@@ -163,6 +174,10 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
   };
 
   const handleUpdateNote = async (noteId: string) => {
+    if (!studentId) {
+      setActionError("Missing student id.");
+      return;
+    }
     if (!editContent.trim()) {
       setActionError("Note content is required");
       return;
@@ -204,6 +219,10 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
   };
 
   const handleGenerateSummary = async () => {
+    if (!studentId) {
+      setSummaryError("Missing student id.");
+      return;
+    }
     const { data } = await supabase.auth.getSession();
     const session = data.session;
     if (!session) {
