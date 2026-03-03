@@ -12,9 +12,16 @@ const EDIT_WINDOW_MS = 15 * 60 * 1000;
 
 export const PUT = withRoute(async ({ request, params, requestId }) => {
   const { supabase, userId } = await requireAuth(request);
-  const noteId = params?.noteId;
+  const { noteId, usedFallback } = getNoteId(params, request);
   if (!noteId) {
     throw new ApiError(400, "missing note_id");
+  }
+  if (usedFallback && isDebugEnabled()) {
+    console.log(JSON.stringify({
+      event: "note_update_note_id_fallback",
+      request_id: requestId,
+      note_id: noteId
+    }));
   }
 
   let body: NoteUpdateInput;
@@ -32,7 +39,7 @@ export const PUT = withRoute(async ({ request, params, requestId }) => {
 
   const { data: existing, error: existingError } = await supabase
     .from("student_notes")
-    .select("id, created_at")
+    .select("id, teacher_id, created_at")
     .eq("id", noteId)
     .single();
 
@@ -47,12 +54,33 @@ export const PUT = withRoute(async ({ request, params, requestId }) => {
     throw new ApiError(404, "note not found");
   }
 
-  const createdAt = new Date(existing.created_at).getTime();
-  if (Date.now() - createdAt > EDIT_WINDOW_MS) {
+  if (existing.teacher_id !== userId) {
+    throw new ApiError(404, "note not found");
+  }
+
+  const now = new Date();
+  const createdAtDate = new Date(existing.created_at);
+  const createdAtMs = createdAtDate.getTime();
+  const timeDiffMs = Number.isNaN(createdAtMs) ? null : now.getTime() - createdAtMs;
+
+  if (isDebugEnabled()) {
+    console.log(JSON.stringify({
+      event: "note_update_window_check",
+      request_id: requestId,
+      note_id: noteId,
+      teacher_id_jwt: userId,
+      teacher_id_db: existing.teacher_id,
+      created_at: existing.created_at,
+      server_time: now.toISOString(),
+      diff_ms: timeDiffMs
+    }));
+  }
+
+  if (timeDiffMs !== null && timeDiffMs > EDIT_WINDOW_MS) {
     throw new ApiError(409, "note edit window expired");
   }
 
-  const cutoff = new Date(Date.now() - EDIT_WINDOW_MS).toISOString();
+  const cutoff = new Date(now.getTime() - EDIT_WINDOW_MS).toISOString();
 
   const { data, error } = await supabase
     .from("student_notes")
@@ -61,6 +89,7 @@ export const PUT = withRoute(async ({ request, params, requestId }) => {
       tag
     })
     .eq("id", noteId)
+    .eq("teacher_id", userId)
     .gte("created_at", cutoff)
     .select("id, student_id, teacher_id, content, tag, created_at");
 
@@ -77,3 +106,23 @@ export const PUT = withRoute(async ({ request, params, requestId }) => {
   response.headers.set("x-request-id", requestId);
   return response;
 });
+
+function getNoteId(
+  params: Record<string, string> | undefined,
+  request: Request
+): { noteId: string | null; usedFallback: boolean } {
+  if (params?.noteId) {
+    return { noteId: params.noteId, usedFallback: false };
+  }
+  const pathname = new URL(request.url).pathname;
+  const segments = pathname.split("/").filter(Boolean);
+  const idx = segments.indexOf("notes");
+  if (idx !== -1 && segments.length > idx + 1) {
+    return { noteId: segments[idx + 1] ?? null, usedFallback: true };
+  }
+  return { noteId: null, usedFallback: true };
+}
+
+function isDebugEnabled(): boolean {
+  return (process.env.NOTE_UPDATE_DEBUG ?? "").trim() === "1";
+}
