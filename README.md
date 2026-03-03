@@ -1,12 +1,71 @@
-# Tutor Dashboard
+# Tutor Intelligence Dashboard
 
-This is a web application for managing tutors and students.
+An open-source, multi-tenant dashboard for tutors and small learning centers. It keeps student notes structured and time-stamped, enables fast recall, and offers AI-assisted summaries without adding operational noise.
+
+**Principles**
+- Note-first
+- AI-secondary
+- Operationally simple
+- Low visual noise
+
+## Product Scope
+
+Core objectives:
+- Structured, time-stamped student notes
+- AI-generated weekly summaries and monthly reports
+- Grade-based filtering across academic years
+- Fast recall with low visual noise
+
+Non-goals:
+- Payments
+- Attendance automation
+- Messaging
+- Predictive scoring
+
+## Architecture
+
+- Frontend: Next.js (App Router), TypeScript, React
+  - Server components for read-heavy pages
+  - Client components for note input and edits
+- Backend: Go API (Gin/Fiber style), stateless REST
+  - JWT validation via Supabase Auth
+  - LLM calls only from backend
+- Database: Supabase Postgres with RLS
+  - Multi-tenant via `teacher_id`
+
+## Core Features
+
+- Multi-tenant dashboard with grade/year/batch filters
+- Student detail page with reverse-chronological notes
+- Optimistic note add, inline edit (short window)
+- Weekly summaries (2–4 sentences, fact-based)
+- Monthly reports with structured output and edit-before-export
+- Import students via CSV/Excel with validation and dedupe
+- Analytics: notes per week, tag distribution, inactivity detection
+
+## Who This Is For
+
+- Tutors managing many students across grades
+- Small learning centers that need fast recall without extra overhead
+- Teams that want an auditable, simple data model
+
+## Performance Targets
+
+- Student page: <500ms
+- Dashboard: <500ms (200 students)
+- Mobile load: <1s
+
+## Security Model
+
+- Supabase Auth for signup/login/reset
+- Row-level security (RLS) with `teacher_id` scoping
+- Backend validates JWT and enforces tenant boundaries
 
 ## Project Structure
 
-- `frontend/`: Next.js frontend application
-- `backend/`: Go backend API
-- `supabase/`: Supabase configuration
+- `frontend/`: Next.js frontend
+- `backend/`: Go API
+- `supabase/`: Supabase configuration/migrations
 
 ## Getting Started
 
@@ -16,31 +75,76 @@ This is a web application for managing tutors and students.
 - Go
 - Docker (for Supabase)
 
-### Installation
+### Setup
 
-1.  **Frontend:**
-    ```bash
-    cd frontend
-    npm install
-    npm run dev
-    ```
+1. **Frontend**
+   ```bash
+   cd frontend
+   npm install
+   npm run dev
+   ```
 
-2.  **Backend:**
-    ```bash
-    cd backend
-    go run ./cmd/api
-    ```
+2. **Backend**
+   ```bash
+   cd backend
+   go run ./cmd/api
+   ```
 
 ### Environment Variables
 
-Create a `.env.local` file in the `frontend` directory by copying `.env.local.example`.
+Frontend (`frontend/.env.local` from `frontend/.env.local.example`):
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `NEXT_PUBLIC_API_BASE_URL`
 
-Create a `.env` file in the `backend` directory by copying `.env.example`.
+Backend (`backend/.env` from `backend/.env.example`):
+- `DATABASE_URL`
+- `SUPABASE_URL`
+- `SUPABASE_ISSUER`
+- `SUPABASE_AUDIENCE`
+- `SUPABASE_JWT_SECRET`
+- `PORT`
 
-Fill in the necessary environment variables for your Supabase project.
+## Open Source
 
-## Features
+This repository is intended for public use and community contributions. If you’re evaluating this for your organization, start with the sections above and open an issue for questions or feature proposals that align with the stated constraints.
 
-- User authentication
-- Tutor and student management
-- Dashboard for viewing and managing data
+## Contributing
+
+- Keep changes aligned with the product constraints in this README
+- Prefer small, reviewable pull requests
+- Add tests for any new domain logic or data processing
+
+## Roadmap (PRD-Aligned)
+
+- Student import with CSV/Excel validation and partial success
+- Weekly summary job runner + manual refresh
+- Monthly report editor and export
+- Grade/year filters with fast server-rendered dashboards
+
+## Data Model (High Level)
+
+- Teacher
+- Student (grade, academic_year, optional batch)
+- StudentNote (tagged, time-stamped)
+- WeeklySummary (student_id + week_start)
+- MonthlyReport (student_id + month)
+- ScheduleSlot (teacher timetable)
+
+## Testing Expectations
+
+- Unit: domain logic, AI input validation, grade filter correctness
+- Integration: note → summary pipeline, CSV import edge cases
+- E2E: signup, import, add note, generate summary, filter by grade
+
+## Constraints
+
+This system must remain:
+- Note-first
+- AI-secondary
+- Operationally simple
+- Low visual noise
+
+## License
+
+MIT
