@@ -2,12 +2,7 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 
-const required = [
-  "SUPABASE_URL",
-  "SUPABASE_ANON_KEY",
-  "TEST_TEACHER_EMAIL",
-  "TEST_TEACHER_PASSWORD"
-];
+const required = ["TEST_TEACHER_EMAIL", "TEST_TEACHER_PASSWORD"];
 
 for (const key of required) {
   if (!process.env[key]) {
@@ -15,9 +10,20 @@ for (const key of required) {
   }
 }
 
+const supabaseUrlEnv = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+const supabaseAnonKeyEnv = process.env.SUPABASE_ANON_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+
+if (!supabaseUrlEnv) {
+  throw new Error("Missing required env var: SUPABASE_URL or NEXT_PUBLIC_SUPABASE_URL");
+}
+
+if (!supabaseAnonKeyEnv) {
+  throw new Error("Missing required env var: SUPABASE_ANON_KEY or NEXT_PUBLIC_SUPABASE_ANON_KEY");
+}
+
 const baseUrl = (process.env.TEST_BASE_URL ?? "http://localhost:3000").replace(/\/+$/, "");
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+const supabaseUrl = supabaseUrlEnv;
+const supabaseAnonKey = supabaseAnonKeyEnv;
 const email = process.env.TEST_TEACHER_EMAIL;
 const password = process.env.TEST_TEACHER_PASSWORD;
 
