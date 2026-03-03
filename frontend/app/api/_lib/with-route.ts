@@ -13,7 +13,10 @@ type HandlerResult = Promise<Response>;
 
 type Handler = (context: HandlerContext) => HandlerResult;
 
-type NextHandler = (request: Request, context?: { params?: Record<string, string> }) => HandlerResult;
+type NextHandler = (
+  request: Request,
+  context?: { params?: Record<string, string> | Promise<Record<string, string>> }
+) => HandlerResult;
 
 export function withRoute(handler: Handler): NextHandler {
   return async (request, context) => {
@@ -22,12 +25,13 @@ export function withRoute(handler: Handler): NextHandler {
     const method = request.method;
     const requestId = getRequestId(request);
     let userId: string | null = (request as { __userId?: string }).__userId ?? null;
+    const resolvedParams = await context?.params;
 
     try {
       requireEnv();
       const response = await handler({
         request,
-        params: context?.params,
+        params: resolvedParams,
         requestId
       });
       const status = response.status;
