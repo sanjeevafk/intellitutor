@@ -1,3 +1,5 @@
+import type { Duration } from "@upstash/ratelimit";
+
 type EnvConfig = {
   supabaseUrl: string;
   supabaseAnonKey: string;
@@ -8,7 +10,7 @@ type EnvConfig = {
   summaryTemperature: number;
   summaryMaxTokens: number;
   summaryRateLimit: number;
-  summaryRateWindow: string;
+  summaryRateWindow: Duration;
 };
 
 let cachedEnv: EnvConfig | null = null;
@@ -47,7 +49,7 @@ export function requireEnv(): EnvConfig {
     summaryTemperature: parseNumberOrDefault(process.env.SUMMARY_TEMPERATURE, 0.2),
     summaryMaxTokens: parseNumberOrDefault(process.env.SUMMARY_MAX_TOKENS, 256),
     summaryRateLimit: parseNumberOrDefault(process.env.SUMMARY_RATE_LIMIT, 10),
-    summaryRateWindow: (process.env.SUMMARY_RATE_WINDOW ?? "1 h").trim()
+    summaryRateWindow: parseDurationOrDefault(process.env.SUMMARY_RATE_WINDOW, "1 h")
   };
 
   return cachedEnv;
@@ -57,6 +59,15 @@ function parseNumberOrDefault(value: string | undefined, fallback: number): numb
   if (!value) return fallback;
   const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function parseDurationOrDefault(value: string | undefined, fallback: Duration): Duration {
+  const raw = (value ?? "").trim();
+  if (!raw) return fallback;
+  if (/^\\d+\\s?(ms|s|m|h|d)$/.test(raw)) {
+    return raw as Duration;
+  }
+  return fallback;
 }
 
 function normalizeSupabaseUrl(rawUrl: string): string {
