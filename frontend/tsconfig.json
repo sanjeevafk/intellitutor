@@ -2,11 +2,10 @@
   "compilerOptions": {
     "target": "ES2020",
     "lib": [
-      "DOM",
-      "DOM.Iterable",
+      "dom",
+      "dom.iterable",
       "ES2020"
     ],
-    "allowJs": false,
     "skipLibCheck": true,
     "strict": true,
     "noEmit": true,
@@ -17,6 +16,15 @@
     "isolatedModules": true,
     "jsx": "react-jsx",
     "incremental": true,
+    "typeRoots": [
+      "./node_modules/@types"
+    ],
+    "types": [
+      "node",
+      "estree",
+      "json-schema",
+      "phoenix"
+    ],
     "baseUrl": ".",
     "paths": {
       "@/*": [
