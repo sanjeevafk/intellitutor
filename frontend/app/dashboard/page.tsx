@@ -23,6 +23,20 @@ type ImportResult = {
   errors: Array<{ row: number; error: string }>;
 };
 
+async function fetcher([url, token]: readonly [string, string]) {
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`API error: ${response.status}`);
+  }
+
+  return response.json();
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const [token, setToken] = useState<string | null>(null);
@@ -186,10 +200,15 @@ export default function DashboardPage() {
         body: formData
       });
 
-      const payload = (await response.json()) as ImportResult;
       if (!response.ok) {
-        throw new Error(payload?.errors?.[0]?.error ?? `Import failed (${response.status})`);
+        const errorPayload = await response.json().catch(() => ({}));
+        throw new Error(
+          errorPayload?.error ?? errorPayload?.errors?.[0]?.error ?? `Import failed (${response.status})`
+        );
       }
+
+      const payload = (await response.json()) as ImportResult;
+      setImportResult(payload);
 
       setImportResult(payload);
       setImportFile(null);
@@ -376,11 +395,14 @@ export default function DashboardPage() {
                   <p key={`${err.row}-${err.error}`} className="helper" style={{ margin: 0 }}>
                     Row {err.row}: {err.error}
                   </p>
-                ))}
-              </div>
-            ) : null}
-          </div>
-        ) : null}
+        <label htmlFor="import-csv-file" className="helper">Choose CSV file</label>
+        <input
+          id="import-csv-file"
+          key={importResult ? 'reset' : 'input'}
+          type="file"
+          accept=".csv,text/csv"
+          onChange={(event) => setImportFile(event.target.files?.[0] ?? null)}
+        />
         <input
           type="file"
           accept=".csv,text/csv"
@@ -397,18 +419,4 @@ export default function DashboardPage() {
 function formatDate(value: string) {
   const date = new Date(value);
   return date.toLocaleString();
-}
-
-async function fetcher([url, token]: readonly [string, string]) {
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${token}`
-    }
-  });
-
-  if (!response.ok) {
-    throw new Error(`API error: ${response.status}`);
-  }
-
-  return response.json();
 }
