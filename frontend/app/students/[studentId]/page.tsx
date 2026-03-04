@@ -62,6 +62,8 @@ export default function StudentDetailPage() {
     let active = true;
     const loadSession = async () => {
       if (!studentId) {
+        setToken(null);
+        setAuthChecked(true);
         return;
       }
       const { data } = await supabase.auth.getSession();

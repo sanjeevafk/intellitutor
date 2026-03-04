@@ -23,6 +23,7 @@ type StudentRow = {
 };
 
 const MAX_CSV_BYTES = 2_000_000;
+const MAX_CSV_MB = Math.round(MAX_CSV_BYTES / 1_000_000);
 
 export const POST = withRoute(async ({ request, requestId }) => {
   const { supabase, userId } = await requireAuth(request);
@@ -37,7 +38,7 @@ export const POST = withRoute(async ({ request, requestId }) => {
       throw new ApiError(400, "file is required");
     }
     if (file.size > MAX_CSV_BYTES) {
-      throw new ApiError(413, "CSV file too large");
+      throw new ApiError(413, `CSV file too large (max ${MAX_CSV_MB}MB)`);
     }
     csvText = await file.text();
   } else {
@@ -45,7 +46,7 @@ export const POST = withRoute(async ({ request, requestId }) => {
   }
 
   if (csvText.length > MAX_CSV_BYTES) {
-    throw new ApiError(413, "CSV payload too large");
+    throw new ApiError(413, `CSV payload too large (max ${MAX_CSV_MB}MB)`);
   }
 
   if (!csvText.trim()) {
