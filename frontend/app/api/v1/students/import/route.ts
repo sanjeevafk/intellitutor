@@ -22,6 +22,8 @@ type StudentRow = {
   batch_name: string | null;
 };
 
+const MAX_CSV_BYTES = 2_000_000;
+
 export const POST = withRoute(async ({ request, requestId }) => {
   const { supabase, userId } = await requireAuth(request);
 
@@ -34,9 +36,16 @@ export const POST = withRoute(async ({ request, requestId }) => {
     if (!file || !(file instanceof File)) {
       throw new ApiError(400, "file is required");
     }
+    if (file.size > MAX_CSV_BYTES) {
+      throw new ApiError(413, "CSV file too large");
+    }
     csvText = await file.text();
   } else {
     csvText = await request.text();
+  }
+
+  if (csvText.length > MAX_CSV_BYTES) {
+    throw new ApiError(413, "CSV payload too large");
   }
 
   if (!csvText.trim()) {

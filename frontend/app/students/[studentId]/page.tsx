@@ -69,6 +69,8 @@ export default function StudentDetailPage() {
       const session = data.session;
 
       if (!session) {
+        setToken(null);
+        setAuthChecked(true);
         router.replace("/login");
         return;
       }
@@ -78,8 +80,20 @@ export default function StudentDetailPage() {
     };
 
     loadSession();
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!active) return;
+      if (!session) {
+        setToken(null);
+        setAuthChecked(true);
+        router.replace("/login");
+        return;
+      }
+      setToken(session.access_token);
+      setAuthChecked(true);
+    });
     return () => {
       active = false;
+      authListener?.subscription?.unsubscribe();
     };
   }, [router, studentId]);
 
