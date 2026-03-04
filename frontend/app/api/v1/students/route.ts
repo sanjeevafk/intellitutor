@@ -18,6 +18,7 @@ export const GET = withRoute(async ({ request, requestId }) => {
   let query = supabase
     .from("students")
     .select("id, full_name, current_grade, academic_year, batch_name, created_at")
+    .eq("teacher_id", userId)
     .order("created_at", { ascending: false });
 
   if (gradeParam) {

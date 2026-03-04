@@ -14,6 +14,7 @@ export const GET = withRoute(async ({ request, params, requestId }) => {
     .from("weekly_summaries")
     .select("id, student_id, teacher_id, week_start, summary_text, generated_at")
     .eq("student_id", studentId)
+    .eq("teacher_id", userId)
     .order("week_start", { ascending: false })
     .limit(1);
 

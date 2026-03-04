@@ -14,6 +14,7 @@ export const GET = withRoute(async ({ request, params, requestId }) => {
     .from("students")
     .select("id, full_name, current_grade, academic_year, batch_name, created_at")
     .eq("id", studentId)
+    .eq("teacher_id", userId)
     .single();
 
   if (error) {

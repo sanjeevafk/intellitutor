@@ -29,6 +29,7 @@ export const POST = withRoute(async ({ request, requestId }) => {
     .from("students")
     .select("id, full_name")
     .eq("id", studentId)
+    .eq("teacher_id", userId)
     .single();
 
   if (studentError) {
@@ -49,6 +50,7 @@ export const POST = withRoute(async ({ request, requestId }) => {
     .from("student_notes")
     .select("content, tag, created_at")
     .eq("student_id", studentId)
+    .eq("teacher_id", userId)
     .gte("created_at", weekStart.toISOString())
     .order("created_at", { ascending: true });
 

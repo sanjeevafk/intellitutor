@@ -19,6 +19,7 @@ export const GET = withRoute(async ({ request, params, requestId }) => {
     .from("student_notes")
     .select("id, student_id, teacher_id, content, tag, created_at")
     .eq("student_id", studentId)
+    .eq("teacher_id", userId)
     .order("created_at", { ascending: false });
 
   if (error) {
