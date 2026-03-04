@@ -209,8 +209,6 @@ export default function DashboardPage() {
 
       const payload = (await response.json()) as ImportResult;
       setImportResult(payload);
-
-      setImportResult(payload);
       setImportFile(null);
       mutateStudents();
     } catch (err) {
@@ -395,15 +393,15 @@ export default function DashboardPage() {
                   <p key={`${err.row}-${err.error}`} className="helper" style={{ margin: 0 }}>
                     Row {err.row}: {err.error}
                   </p>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         <label htmlFor="import-csv-file" className="helper">Choose CSV file</label>
         <input
           id="import-csv-file"
-          key={importResult ? 'reset' : 'input'}
-          type="file"
-          accept=".csv,text/csv"
-          onChange={(event) => setImportFile(event.target.files?.[0] ?? null)}
-        />
-        <input
+          key={importResult ? "reset" : "input"}
           type="file"
           accept=".csv,text/csv"
           onChange={(event) => setImportFile(event.target.files?.[0] ?? null)}
