@@ -52,6 +52,21 @@ export const POST = withRoute(async ({ request, params, requestId }) => {
     throw new ApiError(400, "content is required");
   }
 
+  const { data: student, error: studentError } = await supabase
+    .from("students")
+    .select("id")
+    .eq("id", studentId)
+    .eq("teacher_id", userId)
+    .maybeSingle();
+
+  if (studentError) {
+    throw new ApiError(500, "failed to verify student", studentError);
+  }
+
+  if (!student) {
+    throw new ApiError(404, "student not found");
+  }
+
   const { data, error } = await supabase
     .from("student_notes")
     .insert({
