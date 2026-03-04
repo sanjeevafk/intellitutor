@@ -17,8 +17,9 @@ export const GET = withRoute(async ({ request, requestId }) => {
 
   let query = supabase
     .from("students")
-    .select("id, full_name, current_grade, academic_year, batch_name, created_at")
+    .select("id, full_name, current_grade, academic_year, batch_name, created_at, last_note_at")
     .eq("teacher_id", userId)
+    .order("last_note_at", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false });
 
   if (gradeParam) {
@@ -50,50 +51,7 @@ export const GET = withRoute(async ({ request, requestId }) => {
     throw new ApiError(500, "failed to fetch students", error);
   }
 
-  const students = data ?? [];
-  const studentIds = students.map((student) => student.id);
-  const lastNoteByStudent = new Map<string, string | null>();
-
-  if (studentIds.length > 0) {
-    const { data: lastNotes, error: lastNotesError } = await supabase.rpc("get_latest_notes", {
-      student_ids: studentIds
-    });
-
-    if (lastNotesError) {
-      if (isMissingFunctionError(lastNotesError)) {
-        const { data: notes, error: notesError } = await supabase
-          .from("student_notes")
-          .select("student_id, created_at")
-          .in("student_id", studentIds)
-          .order("created_at", { ascending: false });
-
-        if (notesError) {
-          throw new ApiError(500, "failed to fetch student notes", notesError);
-        }
-
-        for (const note of notes ?? []) {
-          if (!lastNoteByStudent.has(note.student_id)) {
-            lastNoteByStudent.set(note.student_id, note.created_at ?? null);
-          }
-        }
-      } else {
-        throw new ApiError(500, "failed to fetch student notes", lastNotesError);
-      }
-    } else {
-      for (const note of lastNotes ?? []) {
-        if (note.student_id) {
-          lastNoteByStudent.set(note.student_id, note.last_note_at ?? null);
-        }
-      }
-    }
-  }
-
-  const payload = students.map((student) => ({
-    ...student,
-    last_note_at: lastNoteByStudent.get(student.id) ?? null
-  }));
-
-  const response = NextResponse.json(payload, { status: 200 });
+  const response = NextResponse.json(data ?? [], { status: 200 });
   response.headers.set("x-user-id", userId);
   response.headers.set("x-request-id", requestId);
   return response;
@@ -142,7 +100,7 @@ export const POST = withRoute(async ({ request, requestId }) => {
       academic_year: academicYear,
       batch_name: batchName || null
     })
-    .select("id, full_name, current_grade, academic_year, batch_name, created_at")
+    .select("id, full_name, current_grade, academic_year, batch_name, created_at, last_note_at")
     .single();
 
   if (error) {
@@ -165,11 +123,4 @@ export async function OPTIONS(request: Request) {
   });
 }
 
-function isMissingFunctionError(error: { code?: string; message?: string }) {
-  const code = error.code ?? "";
-  if (code === "PGRST202" || code === "42883") {
-    return true;
-  }
-  const message = (error.message ?? "").toLowerCase();
-  return message.includes("function") && message.includes("get_latest_notes") && message.includes("does not exist");
-}
+ 

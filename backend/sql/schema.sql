@@ -37,7 +37,8 @@ create table if not exists students (
   current_grade integer not null,
   academic_year text not null,
   batch_name text,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  last_note_at timestamptz
 );
 
 create table if not exists student_notes (
@@ -83,6 +84,7 @@ create index if not exists idx_students_teacher_id on students(teacher_id);
 create index if not exists idx_students_academic_year on students(academic_year);
 create index if not exists idx_students_current_grade on students(current_grade);
 create index if not exists idx_students_created_at on students(created_at);
+create index if not exists idx_students_last_note_at on students(last_note_at);
 create index if not exists idx_students_full_name_trgm on students using gin (full_name gin_trgm_ops);
 
 create index if not exists idx_student_notes_student_id on student_notes(student_id);
@@ -111,6 +113,26 @@ as $$
   where n.student_id = any(student_ids)
   group by n.student_id;
 $$;
+
+create or replace function public.touch_student_last_note_at()
+  returns trigger
+  language plpgsql
+  security definer
+  set search_path = public
+as $$
+begin
+  update students
+    set last_note_at = new.created_at
+    where id = new.student_id
+      and (last_note_at is null or last_note_at < new.created_at);
+  return new;
+end;
+$$;
+
+drop trigger if exists on_student_note_insert on student_notes;
+create trigger on_student_note_insert
+  after insert on student_notes
+  for each row execute function public.touch_student_last_note_at();
 
 -- RLS
 alter table teachers enable row level security;
