@@ -17,6 +17,12 @@ type Student = {
   last_note_at: string | null;
 };
 
+type ImportResult = {
+  inserted_count: number;
+  skipped_count: number;
+  errors: Array<{ row: number; error: string }>;
+};
+
 export default function DashboardPage() {
   const router = useRouter();
   const [token, setToken] = useState<string | null>(null);
@@ -36,6 +42,10 @@ export default function DashboardPage() {
   });
   const [addError, setAddError] = useState<string | null>(null);
   const [addLoading, setAddLoading] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importLoading, setImportLoading] = useState(false);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
 
   useEffect(() => {
     const handle = setTimeout(() => setSearchTerm(filters.search.trim()), 300);
@@ -144,6 +154,50 @@ export default function DashboardPage() {
       setAddError(err instanceof Error ? err.message : "Failed to add student");
     } finally {
       setAddLoading(false);
+    }
+  };
+
+  const handleImportStudents = async () => {
+    if (!importFile) {
+      setImportError("CSV file is required.");
+      return;
+    }
+
+    const { data } = await supabase.auth.getSession();
+    const session = data.session;
+
+    if (!session) {
+      router.replace("/login");
+      return;
+    }
+
+    setImportLoading(true);
+    setImportError(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", importFile);
+
+      const response = await fetch(buildApiUrl("/api/v1/students/import"), {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`
+        },
+        body: formData
+      });
+
+      const payload = (await response.json()) as ImportResult;
+      if (!response.ok) {
+        throw new Error(payload?.errors?.[0]?.error ?? `Import failed (${response.status})`);
+      }
+
+      setImportResult(payload);
+      setImportFile(null);
+      mutateStudents();
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : "Failed to import students");
+    } finally {
+      setImportLoading(false);
     }
   };
 
@@ -305,6 +359,36 @@ export default function DashboardPage() {
             </div>
           )
         ) : null}
+      </div>
+
+      <div className="card stack">
+        <h2 style={{ margin: 0 }}>Import CSV</h2>
+        <p className="helper">Columns: full_name, current_grade, academic_year, batch (optional).</p>
+        {importError ? <p className="helper" style={{ color: "#b42318" }}>{importError}</p> : null}
+        {importResult ? (
+          <div className="stack">
+            <p className="helper" style={{ margin: 0 }}>
+              Inserted {importResult.inserted_count} · Skipped {importResult.skipped_count}
+            </p>
+            {importResult.errors.length > 0 ? (
+              <div className="stack">
+                {importResult.errors.map((err) => (
+                  <p key={`${err.row}-${err.error}`} className="helper" style={{ margin: 0 }}>
+                    Row {err.row}: {err.error}
+                  </p>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+        <input
+          type="file"
+          accept=".csv,text/csv"
+          onChange={(event) => setImportFile(event.target.files?.[0] ?? null)}
+        />
+        <button type="button" onClick={handleImportStudents} disabled={importLoading}>
+          {importLoading ? "Importing..." : "Import students"}
+        </button>
       </div>
     </div>
   );
