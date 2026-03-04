@@ -215,11 +215,20 @@ create policy "students_delete_own" on students
 create policy "student_notes_select_own" on student_notes
   for select using (teacher_id = auth.uid());
 
+drop policy if exists "student_notes_insert_own" on student_notes;
 create policy "student_notes_insert_own" on student_notes
-  for insert with check (teacher_id = auth.uid());
+  for insert with check (
+    teacher_id = auth.uid()
+    and student_id in (select id from students where teacher_id = auth.uid())
+  );
 
+drop policy if exists "student_notes_update_own" on student_notes;
 create policy "student_notes_update_own" on student_notes
-  for update using (teacher_id = auth.uid()) with check (teacher_id = auth.uid());
+  for update using (teacher_id = auth.uid())
+  with check (
+    teacher_id = auth.uid()
+    and student_id in (select id from students where teacher_id = auth.uid())
+  );
 
 create policy "student_notes_delete_own" on student_notes
   for delete using (teacher_id = auth.uid());
