@@ -28,6 +28,14 @@ export default function DashboardPage() {
     search: ""
   });
   const [searchTerm, setSearchTerm] = useState("");
+  const [addForm, setAddForm] = useState({
+    fullName: "",
+    currentGrade: "",
+    academicYear: "",
+    batch: ""
+  });
+  const [addError, setAddError] = useState<string | null>(null);
+  const [addLoading, setAddLoading] = useState(false);
 
   useEffect(() => {
     const handle = setTimeout(() => setSearchTerm(filters.search.trim()), 300);
@@ -82,6 +90,66 @@ export default function DashboardPage() {
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     router.replace("/login");
+  };
+
+  const handleAddStudent = async () => {
+    const fullName = addForm.fullName.trim();
+    const academicYear = addForm.academicYear.trim();
+    const grade = Number.parseInt(addForm.currentGrade.trim(), 10);
+    const batch = addForm.batch.trim();
+
+    if (!fullName) {
+      setAddError("Full name is required.");
+      return;
+    }
+    if (!academicYear) {
+      setAddError("Academic year is required.");
+      return;
+    }
+    if (!Number.isFinite(grade)) {
+      setAddError("Grade must be a number.");
+      return;
+    }
+
+    const { data } = await supabase.auth.getSession();
+    const session = data.session;
+
+    if (!session) {
+      router.replace("/login");
+      return;
+    }
+
+    setAddLoading(true);
+    setAddError(null);
+
+    try {
+      const response = await fetch(buildApiUrl("/api/v1/students"), {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          full_name: fullName,
+          current_grade: grade,
+          academic_year: academicYear,
+          batch: batch || null
+        })
+      });
+
+      if (!response.ok) {
+        const payload = await response.json();
+        throw new Error(payload?.error ?? `Failed to create student (${response.status})`);
+      }
+
+      const payload = (await response.json()) as Student;
+      setStudents((prev) => [payload, ...prev]);
+      setAddForm({ fullName: "", currentGrade: "", academicYear: "", batch: "" });
+    } catch (err) {
+      setAddError(err instanceof Error ? err.message : "Failed to add student");
+    } finally {
+      setAddLoading(false);
+    }
   };
 
   return (
@@ -154,6 +222,62 @@ export default function DashboardPage() {
               placeholder="Student name"
             />
           </div>
+        </div>
+      </div>
+
+      <div className="card stack">
+        <h2 style={{ margin: 0 }}>Add student</h2>
+        {addError ? <p className="helper" style={{ color: "#b42318" }}>{addError}</p> : null}
+        <div className="stack" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
+          <div>
+            <label htmlFor="add-full-name">Full name</label>
+            <input
+              id="add-full-name"
+              type="text"
+              value={addForm.fullName}
+              onChange={(event) => setAddForm((prev) => ({ ...prev, fullName: event.target.value }))}
+              placeholder="Student name"
+            />
+          </div>
+          <div>
+            <label htmlFor="add-grade">Grade</label>
+            <input
+              id="add-grade"
+              type="number"
+              inputMode="numeric"
+              min={0}
+              max={12}
+              step={1}
+              value={addForm.currentGrade}
+              onChange={(event) => setAddForm((prev) => ({ ...prev, currentGrade: event.target.value }))}
+              placeholder="e.g. 7"
+            />
+          </div>
+          <div>
+            <label htmlFor="add-year">Academic year</label>
+            <input
+              id="add-year"
+              type="text"
+              value={addForm.academicYear}
+              onChange={(event) => setAddForm((prev) => ({ ...prev, academicYear: event.target.value }))}
+              placeholder="2025-26"
+            />
+          </div>
+          <div>
+            <label htmlFor="add-batch">Batch (optional)</label>
+            <input
+              id="add-batch"
+              type="text"
+              value={addForm.batch}
+              onChange={(event) => setAddForm((prev) => ({ ...prev, batch: event.target.value }))}
+              placeholder="Evening"
+            />
+          </div>
+        </div>
+        <div>
+          <button type="button" onClick={handleAddStudent} disabled={addLoading}>
+            {addLoading ? "Adding..." : "Add student"}
+          </button>
         </div>
       </div>
 
