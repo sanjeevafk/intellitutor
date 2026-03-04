@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import useSWR from "swr";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
@@ -39,16 +40,13 @@ export default function StudentDetailPage() {
   const params = useParams();
   const studentIdParam = params?.studentId;
   const studentId = Array.isArray(studentIdParam) ? studentIdParam[0] : studentIdParam;
-  const [loading, setLoading] = useState(true);
-  const [student, setStudent] = useState<Student | null>(null);
-  const [notes, setNotes] = useState<Note[]>([]);
-  const [summary, setSummary] = useState<WeeklySummary>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const [noteContent, setNoteContent] = useState("");
   const [noteTag, setNoteTag] = useState("");
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
   const [editTag, setEditTag] = useState("");
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
@@ -61,15 +59,13 @@ export default function StudentDetailPage() {
   }, []);
 
   useEffect(() => {
-    const loadStudent = async () => {
-      setLoading(true);
-      setLoadError(null);
+    let active = true;
+    const loadSession = async () => {
       if (!studentId) {
-        setLoadError("Missing student id.");
-        setLoading(false);
         return;
       }
       const { data } = await supabase.auth.getSession();
+      if (!active) return;
       const session = data.session;
 
       if (!session) {
@@ -77,44 +73,37 @@ export default function StudentDetailPage() {
         return;
       }
 
-      try {
-        const [studentRes, notesRes, summaryRes] = await Promise.all([
-          fetch(buildApiUrl(`/api/v1/students/${studentId}`), {
-            headers: { Authorization: `Bearer ${session.access_token}` }
-          }),
-          fetch(buildApiUrl(`/api/v1/students/${studentId}/notes`), {
-            headers: { Authorization: `Bearer ${session.access_token}` }
-          }),
-          fetch(buildApiUrl(`/api/v1/students/${studentId}/summaries/weekly`), {
-            headers: { Authorization: `Bearer ${session.access_token}` }
-          })
-        ]);
-
-        if (!studentRes.ok) {
-          throw new Error(`Student fetch failed: ${studentRes.status}`);
-        }
-
-        const studentPayload = (await studentRes.json()) as Student;
-        setStudent(studentPayload);
-
-        if (notesRes.ok) {
-          const notesPayload = (await notesRes.json()) as Note[];
-          setNotes(notesPayload);
-        }
-
-        if (summaryRes.ok) {
-          const summaryPayload = (await summaryRes.json()) as WeeklySummary;
-          setSummary(summaryPayload);
-        }
-      } catch (err) {
-        setLoadError(err instanceof Error ? err.message : "Failed to load student");
-      } finally {
-        setLoading(false);
-      }
+      setToken(session.access_token);
+      setAuthChecked(true);
     };
 
-    loadStudent();
+    loadSession();
+    return () => {
+      active = false;
+    };
   }, [router, studentId]);
+
+  const studentKey = token && studentId ? [buildApiUrl(`/api/v1/students/${studentId}`), token] as const : null;
+  const notesKey = token && studentId ? [buildApiUrl(`/api/v1/students/${studentId}/notes`), token] as const : null;
+  const summaryKey = token && studentId ? [buildApiUrl(`/api/v1/students/${studentId}/summaries/weekly`), token] as const : null;
+
+  const { data: student, error: studentError, isLoading: studentLoading } = useSWR<Student>(studentKey, fetcher);
+  const {
+    data: notes = [],
+    error: notesError,
+    isLoading: notesLoading,
+    mutate: mutateNotes
+  } = useSWR<Note[]>(notesKey, fetcher);
+  const { data: summary = null, mutate: mutateSummary } = useSWR<WeeklySummary>(summaryKey, fetcher);
+
+  const loading = !authChecked || studentLoading || notesLoading;
+  const loadError = studentError instanceof Error
+    ? studentError.message
+    : notesError instanceof Error
+      ? notesError.message
+      : !studentId
+        ? "Missing student id."
+        : null;
 
   const handleAddNote = async () => {
     if (!studentId) {
@@ -153,7 +142,7 @@ export default function StudentDetailPage() {
       }
 
       const payload = (await response.json()) as Note;
-      setNotes((prev) => [payload, ...prev]);
+      mutateNotes((current) => [payload, ...(current ?? [])], { revalidate: false });
       setNoteContent("");
       setNoteTag("");
     } catch (err) {
@@ -211,7 +200,10 @@ export default function StudentDetailPage() {
       }
 
       const payload = (await response.json()) as Note;
-      setNotes((prev) => prev.map((note) => (note.id === payload.id ? payload : note)));
+      mutateNotes(
+        (current) => (current ?? []).map((note) => (note.id === payload.id ? payload : note)),
+        { revalidate: false }
+      );
       cancelEdit();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Failed to update note");
@@ -248,7 +240,8 @@ export default function StudentDetailPage() {
         throw new Error(payload?.error ?? `Summary failed: ${response.status}`);
       }
 
-      setSummary(payload as WeeklySummary);
+      mutateSummary(payload as WeeklySummary, { revalidate: false });
+      setSummaryError(null);
     } catch (err) {
       setSummaryError(err instanceof Error ? err.message : "Failed to generate summary");
     } finally {
@@ -391,4 +384,18 @@ export default function StudentDetailPage() {
 function formatDate(value: string) {
   const date = new Date(value);
   return date.toLocaleString();
+}
+
+async function fetcher([url, token]: readonly [string, string]) {
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`API error: ${response.status}`);
+  }
+
+  return response.json();
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import useSWR from "swr";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
@@ -18,9 +19,8 @@ type Student = {
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [loading, setLoading] = useState(true);
-  const [students, setStudents] = useState<Student[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const [filters, setFilters] = useState({
     grade: "",
     year: "",
@@ -42,6 +42,25 @@ export default function DashboardPage() {
     return () => clearTimeout(handle);
   }, [filters.search]);
 
+  useEffect(() => {
+    let active = true;
+    const loadSession = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!active) return;
+      const session = data.session;
+      if (!session) {
+        router.replace("/login");
+        return;
+      }
+      setToken(session.access_token);
+      setAuthChecked(true);
+    };
+    loadSession();
+    return () => {
+      active = false;
+    };
+  }, [router]);
+
   const queryString = useMemo(() => {
     const params = new URLSearchParams();
     if (filters.grade.trim()) params.set("grade", filters.grade.trim());
@@ -52,40 +71,16 @@ export default function DashboardPage() {
     return qs ? `?${qs}` : "";
   }, [filters.grade, filters.year, filters.batch, searchTerm]);
 
-  useEffect(() => {
-    const loadStudents = async () => {
-      setLoading(true);
-      setError(null);
-      const { data } = await supabase.auth.getSession();
-      const session = data.session;
+  const studentsKey = token ? [buildApiUrl(`/api/v1/students${queryString}`), token] as const : null;
+  const {
+    data: students = [],
+    error: studentsError,
+    isLoading: studentsLoading,
+    mutate: mutateStudents
+  } = useSWR<Student[]>(studentsKey, fetcher);
 
-      if (!session) {
-        router.replace("/login");
-        return;
-      }
-
-      try {
-        const response = await fetch(buildApiUrl(`/api/v1/students${queryString}`), {
-          headers: {
-            Authorization: `Bearer ${session.access_token}`
-          }
-        });
-
-        if (!response.ok) {
-          throw new Error(`API error: ${response.status}`);
-        }
-
-        const payload = (await response.json()) as Student[];
-        setStudents(payload);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load students");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadStudents();
-  }, [queryString, router]);
+  const loading = !authChecked || studentsLoading;
+  const error = studentsError instanceof Error ? studentsError.message : studentsError ? "Failed to load students" : null;
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
@@ -143,7 +138,7 @@ export default function DashboardPage() {
       }
 
       const payload = (await response.json()) as Student;
-      setStudents((prev) => [payload, ...prev]);
+      mutateStudents((current) => [payload, ...(current ?? [])], { revalidate: false });
       setAddForm({ fullName: "", currentGrade: "", academicYear: "", batch: "" });
     } catch (err) {
       setAddError(err instanceof Error ? err.message : "Failed to add student");
@@ -318,4 +313,18 @@ export default function DashboardPage() {
 function formatDate(value: string) {
   const date = new Date(value);
   return date.toLocaleString();
+}
+
+async function fetcher([url, token]: readonly [string, string]) {
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`API error: ${response.status}`);
+  }
+
+  return response.json();
 }
