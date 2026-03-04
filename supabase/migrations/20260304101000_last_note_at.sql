@@ -77,4 +77,4 @@ create trigger on_student_note_delete
   after delete on student_notes
   for each row execute function public.handle_student_note_change();
 
-create index concurrently if not exists idx_students_last_note_at on students(last_note_at);
+create index if not exists idx_students_last_note_at on students(last_note_at);
