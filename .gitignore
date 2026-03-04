@@ -67,6 +67,8 @@ Thumbs.db
 *.pid
 *.seed
 frontend/.env.local
+project-docs
+
 # OS / Editor
 .idea/
 .vscode/
