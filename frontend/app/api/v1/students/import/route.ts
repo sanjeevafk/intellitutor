@@ -42,10 +42,16 @@ export const POST = withRoute(async ({ request, requestId }) => {
     }
     csvText = await file.text();
   } else {
+    const contentLength = parseInt(request.headers.get("content-length") ?? "0", 10);
+    if (contentLength > MAX_CSV_BYTES) {
+      throw new ApiError(413, `CSV payload too large (max ${MAX_CSV_MB}MB)`);
+    }
     csvText = await request.text();
   }
 
-  if (csvText.length > MAX_CSV_BYTES) {
+  // Double-check actual byte size after reading
+  const byteSize = new TextEncoder().encode(csvText).length;
+  if (byteSize > MAX_CSV_BYTES) {
     throw new ApiError(413, `CSV payload too large (max ${MAX_CSV_MB}MB)`);
   }
 
@@ -101,6 +107,10 @@ export const POST = withRoute(async ({ request, requestId }) => {
     const grade = Number.parseInt(gradeRaw, 10);
     if (!Number.isFinite(grade)) {
       errors.push({ row: rowNumber, error: "current_grade must be a number" });
+      continue;
+    }
+    if (grade < 1 || grade > 12) {
+      errors.push({ row: rowNumber, error: "current_grade must be between 1 and 12" });
       continue;
     }
 
