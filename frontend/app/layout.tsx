@@ -1,6 +1,6 @@
 import "./globals.css";
 import type { ReactNode } from "react";
-import { SWRConfig } from "swr";
+import { SWRProvider } from "./providers";
 import ThemeToggle from "./theme-toggle";
 
 export const metadata = {
@@ -17,17 +17,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body>
         <main>
           <ThemeToggle />
-          <SWRConfig
-            value={{
-              revalidateOnFocus: false,
-              revalidateOnReconnect: false,
-              revalidateIfStale: false,
-              dedupingInterval: 10000,
-              keepPreviousData: true
-            }}
-          >
-            {children}
-          </SWRConfig>
+          <SWRProvider>{children}</SWRProvider>
         </main>
       </body>
     </html>

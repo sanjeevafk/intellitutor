@@ -37,9 +37,8 @@ as $$
 begin
   if (tg_op = 'INSERT') then
     update students
-      set last_note_at = new.created_at
-      where id = new.student_id
-        and (last_note_at is null or last_note_at < new.created_at);
+      set last_note_at = greatest(coalesce(last_note_at, new.created_at), new.created_at)
+      where id = new.student_id;
     return new;
   end if;
 
