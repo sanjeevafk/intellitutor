@@ -37,49 +37,7 @@ export const PUT = withRoute(async ({ request, params, requestId }) => {
     throw new ApiError(400, "content is required");
   }
 
-  const { data: existing, error: existingError } = await supabase
-    .from("student_notes")
-    .select("id, teacher_id, created_at")
-    .eq("id", noteId)
-    .single();
-
-  if (existingError) {
-    if (existingError.code === "PGRST116") {
-      throw new ApiError(404, "note not found");
-    }
-    throw new ApiError(500, "failed to fetch note", existingError);
-  }
-
-  if (!existing) {
-    throw new ApiError(404, "note not found");
-  }
-
-  if (existing.teacher_id !== userId) {
-    throw new ApiError(404, "note not found");
-  }
-
   const now = new Date();
-  const createdAtDate = new Date(existing.created_at);
-  const createdAtMs = createdAtDate.getTime();
-  const timeDiffMs = Number.isNaN(createdAtMs) ? null : now.getTime() - createdAtMs;
-
-  if (isDebugEnabled()) {
-    console.log(JSON.stringify({
-      event: "note_update_window_check",
-      request_id: requestId,
-      note_id: noteId,
-      teacher_id_jwt: userId,
-      teacher_id_db: existing.teacher_id,
-      created_at: existing.created_at,
-      server_time: now.toISOString(),
-      diff_ms: timeDiffMs
-    }));
-  }
-
-  if (timeDiffMs !== null && timeDiffMs > EDIT_WINDOW_MS) {
-    throw new ApiError(409, "note edit window expired");
-  }
-
   const cutoff = new Date(now.getTime() - EDIT_WINDOW_MS).toISOString();
 
   const { data, error } = await supabase
@@ -98,7 +56,22 @@ export const PUT = withRoute(async ({ request, params, requestId }) => {
   }
 
   if (!data || data.length === 0) {
-    throw new ApiError(409, "note edit window expired");
+    const { data: existing, error: existingError } = await supabase
+      .from("student_notes")
+      .select("id, created_at")
+      .eq("id", noteId)
+      .eq("teacher_id", userId)
+      .maybeSingle();
+
+    if (existingError) {
+      throw new ApiError(500, "failed to fetch note", existingError);
+    }
+
+    if (!existing) {
+      throw new ApiError(404, "note not found");
+    }
+
+    throw new ApiError(403, "note edit window expired");
   }
 
   const response = NextResponse.json(data[0], { status: 200 });
