@@ -83,6 +83,7 @@ create table if not exists schedule_slots (
 create index if not exists idx_students_teacher_id on students(teacher_id);
 create index if not exists idx_students_academic_year on students(academic_year);
 create index if not exists idx_students_current_grade on students(current_grade);
+create index if not exists idx_students_batch_name on students(batch_name);
 create index if not exists idx_students_created_at on students(created_at);
 create index if not exists idx_students_last_note_at on students(last_note_at);
 create index if not exists idx_students_full_name_trgm on students using gin (full_name gin_trgm_ops);
