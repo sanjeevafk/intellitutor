@@ -25,6 +25,17 @@ export const POST = withRoute(async ({ request, requestId }) => {
 
   const rateResult = await enforceRateLimit(`weekly_summary:${userId}`);
 
+  if (!rateResult.success) {
+    const response = NextResponse.json(
+      { error: "rate limit exceeded" },
+      { status: 429 }
+    );
+    response.headers.set("x-ratelimit-limit", rateResult.limit.toString());
+    response.headers.set("x-ratelimit-remaining", rateResult.remaining.toString());
+    response.headers.set("x-ratelimit-reset", rateResult.reset.toString());
+    return response;
+  }
+
   const { data: student, error: studentError } = await supabase
     .from("students")
     .select("id, full_name")
