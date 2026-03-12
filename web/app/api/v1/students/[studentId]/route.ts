@@ -24,9 +24,6 @@ export const GET = withRoute(async ({ request, params, requestId }) => {
     throw new ApiError(500, "failed to fetch student", error);
   }
 
-  if (!data) {
-    throw new ApiError(404, "student not found");
-  }
 
   const response = NextResponse.json(data, { status: 200 });
   response.headers.set("x-user-id", userId);
