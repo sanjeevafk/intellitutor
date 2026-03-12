@@ -83,6 +83,11 @@ button {
   cursor: pointer;
 }
 
+button:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
 button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
@@ -103,16 +108,6 @@ pre {
   box-shadow: var(--shadow);
 }
 
-.stack {
-  display: grid;
-  gap: 16px;
-}
-
-.helper {
-  color: var(--muted);
-  font-size: 13px;
-}
-
 .theme-toggle {
   position: fixed;
   top: 20px;
@@ -126,6 +121,11 @@ pre {
   box-shadow: var(--shadow);
   backdrop-filter: blur(10px);
   transition: background 0.25s ease, color 0.25s ease, transform 0.2s ease;
+}
+
+.theme-toggle:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
 }
 
 .theme-toggle:hover {
