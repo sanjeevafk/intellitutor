@@ -24,6 +24,7 @@ type StudentRow = {
 
 const MAX_CSV_BYTES = 2_000_000;
 const MAX_CSV_MB = Math.round(MAX_CSV_BYTES / 1_000_000);
+const MAX_ROWS = 5_000;
 
 export const POST = withRoute(async ({ request, requestId }) => {
   const { supabase, userId } = await requireAuth(request);
@@ -82,6 +83,8 @@ export const POST = withRoute(async ({ request, requestId }) => {
 
   const errors: ImportError[] = [];
   const validRows: StudentRow[] = [];
+  let processedRows = 0;
+  let rowLimitExceeded = false;
 
   for (let i = 1; i < rows.length; i += 1) {
     const row = rows[i];
@@ -90,6 +93,13 @@ export const POST = withRoute(async ({ request, requestId }) => {
     }
 
     const rowNumber = i + 1;
+    if (processedRows >= MAX_ROWS) {
+      errors.push({ row: rowNumber, error: "row limit exceeded" });
+      rowLimitExceeded = true;
+      break;
+    }
+    processedRows += 1;
+
     const fullName = getCell(row, headerMap.get("full_name")!).trim();
     const academicYear = getCell(row, headerMap.get("academic_year")!).trim();
     const gradeRaw = getCell(row, headerMap.get("current_grade")!).trim();
@@ -124,7 +134,7 @@ export const POST = withRoute(async ({ request, requestId }) => {
   }
 
   let insertedCount = 0;
-  if (validRows.length > 0) {
+  if (validRows.length > 0 && !rowLimitExceeded) {
     const { data, error } = await supabase
       .from("students")
       .insert(validRows)
