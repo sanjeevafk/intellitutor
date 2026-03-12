@@ -1,43 +1,37 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 
 type Theme = "light" | "dark";
 
 const STORAGE_KEY = "tutor-dashboard-theme";
 
-function getPreferredTheme(): Theme {
-  if (typeof window === "undefined") {
-    return "light";
-  }
+function readTheme(): Theme {
+  const stored = localStorage.getItem(STORAGE_KEY);
+  if (stored === "light" || stored === "dark") return stored;
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
-function applyTheme(theme: Theme) {
-  document.documentElement.setAttribute("data-theme", theme);
+const listeners = new Set<() => void>();
+
+function subscribe(cb: () => void) {
+  listeners.add(cb);
+  return () => listeners.delete(cb);
 }
 
 export default function ThemeToggle() {
-  // Always start with "light" so the server and initial client render agree,
-  // preventing hydration mismatches. The real preference is applied in useEffect
-  // after hydration.
-  const [theme, setTheme] = useState<Theme>("light");
+  // useSyncExternalStore reads from localStorage on the client and returns the
+  // server snapshot ("light") during SSR, preventing hydration mismatches.
+  const theme = useSyncExternalStore(subscribe, readTheme, () => "light" as Theme);
 
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    const initial: Theme = (stored === "light" || stored === "dark") ? stored : getPreferredTheme();
-    setTheme(initial);
-    applyTheme(initial);
-  }, []);
-
-  useEffect(() => {
-    applyTheme(theme);
-    localStorage.setItem(STORAGE_KEY, theme);
+    document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);
 
   const toggleTheme = () => {
-    const nextTheme: Theme = theme === "dark" ? "light" : "dark";
-    setTheme(nextTheme);
+    const next: Theme = theme === "dark" ? "light" : "dark";
+    localStorage.setItem(STORAGE_KEY, next);
+    listeners.forEach(cb => cb());
   };
 
   return (
