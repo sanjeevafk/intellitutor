@@ -64,7 +64,7 @@ function parseNumberOrDefault(value: string | undefined, fallback: number): numb
 function parseDurationOrDefault(value: string | undefined, fallback: Duration): Duration {
   const raw = (value ?? "").trim();
   if (!raw) return fallback;
-  if (/^\\d+\\s?(ms|s|m|h|d)$/.test(raw)) {
+  if (/^\d+\s?(ms|s|m|h|d)$/.test(raw)) {
     return raw as Duration;
   }
   return fallback;

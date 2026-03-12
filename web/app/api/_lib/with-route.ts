@@ -50,9 +50,14 @@ export function withRoute(handler: Handler): NextHandler {
         latencyMs: Date.now() - start
       });
 
-      response.headers.set("x-request-id", requestId);
-      response.headers.delete("x-user-id");
-      return response;
+      const newHeaders = new Headers(response.headers);
+      newHeaders.set("x-request-id", requestId);
+      newHeaders.delete("x-user-id");
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: newHeaders
+      });
     } catch (error) {
       const status = error instanceof ApiError ? error.status : 500;
       const message = error instanceof ApiError
