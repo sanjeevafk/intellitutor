@@ -31,7 +31,7 @@ export const PUT = withRoute(async ({ request, params, requestId }) => {
     throw new ApiError(400, "invalid JSON payload");
   }
   const content = body.content?.trim();
-  const tag = body.tag?.trim() || null;
+  const tag = body.tag !== undefined ? (body.tag?.trim() || null) : undefined;
 
   if (!content) {
     throw new ApiError(400, "content is required");
@@ -40,12 +40,14 @@ export const PUT = withRoute(async ({ request, params, requestId }) => {
   const now = new Date();
   const cutoff = new Date(now.getTime() - EDIT_WINDOW_MS).toISOString();
 
+  const updatePayload: { content: string; tag?: string | null } = { content };
+  if (tag !== undefined) {
+    updatePayload.tag = tag;
+  }
+
   const { data, error } = await supabase
     .from("student_notes")
-    .update({
-      content,
-      tag
-    })
+    .update(updatePayload)
     .eq("id", noteId)
     .eq("teacher_id", userId)
     .gte("created_at", cutoff)
