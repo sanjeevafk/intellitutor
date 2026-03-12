@@ -171,7 +171,7 @@ export default function DashboardPage() {
       });
 
       if (!response.ok) {
-        const payload = await response.json();
+        const payload = await response.json().catch(() => ({}));
         throw new Error(payload?.error ?? `Failed to create student (${response.status})`);
       }
 
