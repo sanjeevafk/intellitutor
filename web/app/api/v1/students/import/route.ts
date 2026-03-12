@@ -43,11 +43,23 @@ export const POST = withRoute(async ({ request, requestId }) => {
     }
     csvText = await file.text();
   } else {
-    const contentLength = parseInt(request.headers.get("content-length") ?? "0", 10);
-    if (contentLength > MAX_CSV_BYTES) {
-      throw new ApiError(413, `CSV payload too large (max ${MAX_CSV_MB}MB)`);
+    const reader = request.body?.getReader();
+    if (!reader) {
+      throw new ApiError(400, "No request body");
     }
-    csvText = await request.text();
+    const chunks: Uint8Array[] = [];
+    let totalBytes = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.length;
+      if (totalBytes > MAX_CSV_BYTES) {
+        reader.cancel();
+        throw new ApiError(413, `CSV payload too large (max ${MAX_CSV_MB}MB)`);
+      }
+      chunks.push(value);
+    }
+    csvText = new TextDecoder().decode(Buffer.concat(chunks));
   }
 
   // Double-check actual byte size after reading
