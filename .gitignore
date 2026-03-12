@@ -23,6 +23,7 @@ go.work.sum
 
 # TypeScript build info
 *.tsbuildinfo
+web/next-env.d.ts
 
 # Node.js / Next.js
 **/node_modules/
