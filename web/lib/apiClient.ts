@@ -4,5 +4,6 @@ export function buildApiUrl(path: string): string {
   if (!apiBaseUrl) {
     return path;
   }
-  return `${apiBaseUrl}${path}`;
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${apiBaseUrl}${normalizedPath}`;
 }
