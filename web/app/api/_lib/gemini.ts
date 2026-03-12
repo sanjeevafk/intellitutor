@@ -65,7 +65,7 @@ async function extractResponseText(response: unknown): Promise<string> {
   if (response && typeof response === "object") {
     const maybeText = (response as { text?: string | (() => Promise<string>) }).text;
     if (typeof maybeText === "function") {
-      return await maybeText();
+      return await maybeText.call(response);
     }
     if (typeof maybeText === "string") {
       return maybeText;
