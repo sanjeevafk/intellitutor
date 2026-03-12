@@ -41,15 +41,20 @@ export default function LoginPage() {
     setError(null);
     setGoogleLoading(true);
 
-    const { error: oauthError } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`
-      }
-    });
+    try {
+      const { error: oauthError } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`
+        }
+      });
 
-    if (oauthError) {
-      setError(oauthError.message);
+      if (oauthError) {
+        setError(oauthError.message);
+        setGoogleLoading(false);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to initiate Google sign-in.");
       setGoogleLoading(false);
     }
     // On success, the browser is redirected to Google — no further action needed here.

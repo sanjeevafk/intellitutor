@@ -4,19 +4,18 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
-/**
- * OAuth callback page.
- *
- * After Google (or any OAuth provider) redirects back here with a `?code=`
- * parameter, the Supabase browser client automatically detects and exchanges
- * the PKCE code for a session (detectSessionInUrl is true by default).
- * We listen for the resulting SIGNED_IN event and redirect to /dashboard.
- * If the exchange fails we redirect to /login with an error message.
- */
 export default function AuthCallbackPage() {
   const router = useRouter();
 
   useEffect(() => {
+    // Check for OAuth error in URL params
+    const params = new URLSearchParams(window.location.search);
+    const error = params.get("error") || params.get("error_description");
+    if (error) {
+      router.replace(`/login?error=${encodeURIComponent(error)}`);
+      return;
+    }
+
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "SIGNED_IN" && session) {
         authListener.subscription.unsubscribe();
@@ -33,7 +32,14 @@ export default function AuthCallbackPage() {
       }
     });
 
+    // Timeout fallback if auth doesn't complete
+    const timeout = setTimeout(() => {
+      authListener.subscription.unsubscribe();
+      router.replace("/login?error=Authentication+timed+out");
+    }, 10000);
+
     return () => {
+      clearTimeout(timeout);
       authListener.subscription.unsubscribe();
     };
   }, [router]);
