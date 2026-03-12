@@ -46,7 +46,7 @@ export const POST = withRoute(async ({ request, params, requestId }) => {
     throw new ApiError(400, "invalid JSON payload");
   }
   const content = typeof body.content === "string" ? body.content.trim() : "";
-  const tag = body.tag?.trim() || null;
+  const tag = typeof body.tag === "string" ? body.tag.trim() || null : null;
 
   if (!content) {
     throw new ApiError(400, "content is required");

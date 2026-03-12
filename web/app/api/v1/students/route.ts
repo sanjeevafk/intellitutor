@@ -41,7 +41,9 @@ export const GET = withRoute(async ({ request, requestId }) => {
   if (searchParam) {
     const normalized = searchParam.trim();
     if (normalized.length > 0) {
-      const pattern = env.searchPrefixOnly ? `${normalized}%` : `%${normalized}%`;
+      // Escape LIKE wildcards in user input to prevent pattern injection
+      const escaped = normalized.replace(/[%_\\]/g, '\\$&');
+      const pattern = env.searchPrefixOnly ? `${escaped}%` : `%${escaped}%`;
       query = query.ilike("full_name", pattern);
     }
   }
