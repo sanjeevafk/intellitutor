@@ -18,18 +18,19 @@ function applyTheme(theme: Theme) {
 }
 
 export default function ThemeToggle() {
-  const [theme, setTheme] = useState<Theme>(() => {
-    if (typeof window === "undefined") {
-      return "light";
-    }
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return (stored === "light" || stored === "dark") ? stored : getPreferredTheme();
-  });
+  // Always start with "light" so the server and initial client render agree,
+  // preventing hydration mismatches. The real preference is applied in useEffect
+  // after hydration.
+  const [theme, setTheme] = useState<Theme>("light");
 
   useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
+    const stored = localStorage.getItem(STORAGE_KEY);
+    const initial: Theme = (stored === "light" || stored === "dark") ? stored : getPreferredTheme();
+    setTheme(initial);
+    applyTheme(initial);
+  }, []);
+
+  useEffect(() => {
     applyTheme(theme);
     localStorage.setItem(STORAGE_KEY, theme);
   }, [theme]);
