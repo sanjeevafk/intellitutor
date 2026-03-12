@@ -24,10 +24,9 @@ Non-goals:
 
 ## Architecture
 
-- Frontend + API: Next.js (App Router), TypeScript, React
+- Web app + API: Next.js (App Router), TypeScript, React
   - Route handlers provide `/api/v1/*` with header-only Supabase auth
   - Client components for note input and edits
-- Legacy backend: Go API (kept for migration, decommission after cutover)
 - Database: Supabase Postgres with RLS
   - Multi-tenant via `teacher_id`
 
@@ -57,12 +56,11 @@ Non-goals:
 
 - Supabase Auth for signup/login/reset
 - Row-level security (RLS) with `teacher_id` scoping
-- Backend validates JWT and enforces tenant boundaries
+- Supabase RLS enforces tenant boundaries
 
 ## Project Structure
 
-- `frontend/`: Next.js frontend
-- `backend/`: Go API
+- `web/`: Next.js app + API routes
 - `supabase/`: Supabase configuration/migrations
 
 ## Getting Started
@@ -75,22 +73,16 @@ Non-goals:
 
 ### Setup
 
-1. **Frontend**
+1. **Web app**
    ```bash
-   cd frontend
+   cd web
    npm install
    npm run dev
    ```
 
-2. **Backend**
-   ```bash
-   cd backend
-   go run ./cmd/api
-   ```
-
 ### Environment Variables
 
-Frontend + API (`frontend/.env.local` from `frontend/.env.local.example`):
+`web/.env.local` (copy from `web/.env.local.example`):
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - `SUPABASE_URL` (server fallback to `NEXT_PUBLIC_*`)

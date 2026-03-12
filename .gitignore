@@ -69,7 +69,7 @@ Thumbs.db
 *.rej
 *.pid
 *.seed
-frontend/.env.local
+web/.env.local
 project-docs
 
 # OS / Editor

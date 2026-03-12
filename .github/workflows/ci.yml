@@ -31,25 +31,25 @@ jobs:
 
       - name: Install dependencies
         run: |
-          cd frontend
+          cd web
           npm install
 
       - name: Build
         run: |
-          cd frontend
+          cd web
           npm run build
 
       - name: Start server
         run: |
-          cd frontend
+          cd web
           npm run start &
 
       - name: Wait for server
         run: |
-          cd frontend
+          cd web
           node scripts/waitForServer.mjs
 
       - name: Run integration tests
         run: |
-          cd frontend
+          cd web
           npm run test:integration
