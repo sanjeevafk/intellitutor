@@ -28,11 +28,18 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
 
       - name: Install dependencies
         run: |
           cd web
-          npm install
+          npm ci
+
+      - name: Lint
+        run: |
+          cd web
+          npm run lint
 
       - name: Build
         run: |
