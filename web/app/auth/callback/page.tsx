@@ -30,6 +30,8 @@ export default function AuthCallbackPage() {
         authListener.subscription.unsubscribe();
         router.replace("/dashboard");
       }
+    }).catch(() => {
+      // Session check failed; auth listener or timeout will handle fallback
     });
 
     // Timeout fallback if auth doesn't complete
