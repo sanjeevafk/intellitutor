@@ -39,7 +39,7 @@ export default function HomePage() {
           <span className="feature-num">03</span>
           <h3 className="feature-title">Progress at a glance</h3>
           <p className="feature-desc">
-            A clear timeline of each student's journey, from first session to
+            A clear timeline of each student&apos;s journey, from first session to
             where they stand today.
           </p>
         </div>
