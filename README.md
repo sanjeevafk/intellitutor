@@ -158,6 +158,11 @@ UPSTASH_REDIS_REST_TOKEN=
 
 # Optional — defaults to same-origin /api/v1
 NEXT_PUBLIC_API_BASE_URL=
+
+# Keep-alive route (/api/ping and /api/keep-alive)
+KEEP_ALIVE_STORAGE_BUCKET=
+KEEP_ALIVE_STORAGE_PATH=
+KEEP_ALIVE_TIMEOUT_MS=800
 ```
 
 ### Running integration tests
@@ -185,6 +190,17 @@ The project deploys to Vercel with the root `vercel.json` pointing at the `web/`
 ```
 
 Set all environment variables from the section above in your Vercel project settings.
+
+For hobby-tier cold-start mitigation, configure UptimeRobot (or similar) to hit one of these every 5 minutes:
+
+- `GET /api/ping`
+- `GET /api/keep-alive`
+
+Each request returns HTTP 200 with `{ "status": "alive" }` and performs a lightweight Supabase Storage `HEAD` request against:
+
+- `/storage/v1/object/public/{KEEP_ALIVE_STORAGE_BUCKET}/{KEEP_ALIVE_STORAGE_PATH}`
+
+If the file does not exist (`404`), the endpoint still treats it as a successful storage touch. Temporary Supabase/network failures are caught so the route still returns HTTP 200 (with degraded metadata) to avoid false UptimeRobot downtime alerts.
 
 ---
 
