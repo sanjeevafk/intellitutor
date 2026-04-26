@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -22,6 +22,8 @@ type ImportResult = {
   skipped_count: number;
   errors: Array<{ row: number; error: string }>;
 };
+
+type StatusTone = "success" | "warning" | "danger" | "muted";
 
 async function fetcher([url, token]: readonly [string, string]) {
   const response = await fetch(url, {
@@ -48,6 +50,7 @@ export default function DashboardPage() {
     search: ""
   });
   const [searchTerm, setSearchTerm] = useState("");
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [addForm, setAddForm] = useState({
     fullName: "",
     currentGrade: "",
@@ -81,6 +84,7 @@ export default function DashboardPage() {
       setToken(session.access_token);
       setAuthChecked(true);
     };
+
     loadSession();
     const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!active) return;
@@ -93,11 +97,23 @@ export default function DashboardPage() {
       setToken(session.access_token);
       setAuthChecked(true);
     });
+
     return () => {
       active = false;
       authListener?.subscription?.unsubscribe();
     };
   }, [router]);
+
+  useEffect(() => {
+    if (!isAddModalOpen) return;
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsAddModalOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onEscape);
+    return () => window.removeEventListener("keydown", onEscape);
+  }, [isAddModalOpen]);
 
   const queryString = useMemo(() => {
     const params = new URLSearchParams();
@@ -120,12 +136,49 @@ export default function DashboardPage() {
   const loading = !authChecked || studentsLoading;
   const error = studentsError instanceof Error ? studentsError.message : studentsError ? "Failed to load students" : null;
 
+  const metrics = useMemo(() => {
+    const now = Date.now();
+    const oneDay = 24 * 60 * 60 * 1000;
+    let noNotes = 0;
+    let activeThisWeek = 0;
+    let inactive14d = 0;
+
+    for (const student of students) {
+      if (!student.last_note_at) {
+        noNotes += 1;
+        continue;
+      }
+      const timestamp = new Date(student.last_note_at).getTime();
+      const days = Math.floor((now - timestamp) / oneDay);
+      if (days <= 7) activeThisWeek += 1;
+      if (days >= 14) inactive14d += 1;
+    }
+
+    return {
+      total: students.length,
+      noNotes,
+      activeThisWeek,
+      inactive14d
+    };
+  }, [students]);
+
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     router.replace("/login");
   };
 
-  const handleAddStudent = async () => {
+  const clearFilters = () => {
+    setFilters({
+      grade: "",
+      year: "",
+      batch: "",
+      search: ""
+    });
+    setSearchTerm("");
+  };
+
+  const handleAddStudent = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
     const fullName = addForm.fullName.trim();
     const academicYear = addForm.academicYear.trim();
     const grade = Number.parseInt(addForm.currentGrade.trim(), 10);
@@ -146,7 +199,6 @@ export default function DashboardPage() {
 
     const { data } = await supabase.auth.getSession();
     const session = data.session;
-
     if (!session) {
       router.replace("/login");
       return;
@@ -178,6 +230,7 @@ export default function DashboardPage() {
       const payload = (await response.json()) as Student;
       mutateStudents((current) => [payload, ...(current ?? [])], { revalidate: false });
       setAddForm({ fullName: "", currentGrade: "", academicYear: "", batch: "" });
+      setIsAddModalOpen(false);
     } catch (err) {
       setAddError(err instanceof Error ? err.message : "Failed to add student");
     } finally {
@@ -193,7 +246,6 @@ export default function DashboardPage() {
 
     const { data } = await supabase.auth.getSession();
     const session = data.session;
-
     if (!session) {
       router.replace("/login");
       return;
@@ -216,9 +268,7 @@ export default function DashboardPage() {
 
       if (!response.ok) {
         const errorPayload = await response.json().catch(() => ({}));
-        throw new Error(
-          errorPayload?.error ?? errorPayload?.errors?.[0]?.error ?? `Import failed (${response.status})`
-        );
+        throw new Error(errorPayload?.error ?? errorPayload?.errors?.[0]?.error ?? `Import failed (${response.status})`);
       }
 
       const payload = (await response.json()) as ImportResult;
@@ -233,19 +283,23 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="stack">
-      <div className="card stack">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+    <div className="dashboard-shell stack">
+      <section className="card dashboard-controls">
+        <div className="dashboard-header">
           <div>
-            <h1>Dashboard</h1>
-            <p className="helper">Find students by grade, year, batch, or name.</p>
+            <p className="dashboard-kicker">Tutor Workspace</p>
+            <h1 className="dashboard-title">Dashboard</h1>
+            <p className="helper">Track activity, filter fast, and jump to student notes.</p>
           </div>
-          <button type="button" onClick={handleSignOut}>
-            Sign out
-          </button>
+          <div className="dashboard-header-actions">
+            <button type="button" className="btn-outline" onClick={() => setIsAddModalOpen(true)}>
+              + Add student
+            </button>
+            <button type="button" onClick={handleSignOut}>Sign out</button>
+          </div>
         </div>
 
-        <div className="stack" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
+        <div className="dashboard-filter-grid">
           <div>
             <label htmlFor="grade">Grade</label>
             <input
@@ -263,9 +317,7 @@ export default function DashboardPage() {
                   return;
                 }
                 const parsed = Number.parseInt(raw, 10);
-                if (Number.isNaN(parsed)) {
-                  return;
-                }
+                if (Number.isNaN(parsed)) return;
                 const clamped = Math.max(0, Math.min(12, parsed));
                 setFilters((prev) => ({ ...prev, grade: clamped.toString() }));
               }}
@@ -303,96 +355,114 @@ export default function DashboardPage() {
             />
           </div>
         </div>
-      </div>
-
-      <div className="card stack">
-        <h2 style={{ margin: 0 }}>Add student</h2>
-        {addError ? <p className="helper" style={{ color: "#b42318" }}>{addError}</p> : null}
-        <div className="stack" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
-          <div>
-            <label htmlFor="add-full-name">Full name</label>
-            <input
-              id="add-full-name"
-              type="text"
-              value={addForm.fullName}
-              onChange={(event) => setAddForm((prev) => ({ ...prev, fullName: event.target.value }))}
-              placeholder="Student name"
-            />
-          </div>
-          <div>
-            <label htmlFor="add-grade">Grade</label>
-            <input
-              id="add-grade"
-              type="number"
-              inputMode="numeric"
-              min={0}
-              max={12}
-              step={1}
-              value={addForm.currentGrade}
-              onChange={(event) => setAddForm((prev) => ({ ...prev, currentGrade: event.target.value }))}
-              placeholder="e.g. 7"
-            />
-          </div>
-          <div>
-            <label htmlFor="add-year">Academic year</label>
-            <input
-              id="add-year"
-              type="text"
-              value={addForm.academicYear}
-              onChange={(event) => setAddForm((prev) => ({ ...prev, academicYear: event.target.value }))}
-              placeholder="2025-26"
-            />
-          </div>
-          <div>
-            <label htmlFor="add-batch">Batch (optional)</label>
-            <input
-              id="add-batch"
-              type="text"
-              value={addForm.batch}
-              onChange={(event) => setAddForm((prev) => ({ ...prev, batch: event.target.value }))}
-              placeholder="Evening"
-            />
-          </div>
+        <div className="dashboard-controls-footer">
+          <p className="helper">Filters apply instantly. Search is debounced by 300ms.</p>
+          <button type="button" className="btn-ghost-inline" onClick={clearFilters}>Clear filters</button>
         </div>
-        <div>
-          <button type="button" onClick={handleAddStudent} disabled={addLoading}>
-            {addLoading ? "Adding..." : "Add student"}
-          </button>
-        </div>
-      </div>
+      </section>
 
-      <div className="card stack">
-        <h2 style={{ margin: 0 }}>Students</h2>
-        {loading ? <p className="helper">Loading...</p> : null}
-        {error ? <p className="helper" style={{ color: "#b42318" }}>{error}</p> : null}
-        {!loading && !error ? (
-          students.length === 0 ? (
-            <p className="helper">No students found.</p>
-          ) : (
-            <div className="stack">
-              {students.map((student) => (
-                <div key={student.id} className="card" style={{ padding: 16 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div>
-                      <h3 style={{ margin: "0 0 4px" }}>{student.full_name}</h3>
-                      <p className="helper" style={{ margin: 0 }}>
-                        Grade {student.current_grade} · {student.academic_year}
-                        {student.batch_name ? ` · ${student.batch_name}` : ""}
-                      </p>
-                    </div>
-                    <Link href={`/students/${student.id}`}>View</Link>
-                  </div>
-                  <p className="helper" style={{ margin: "8px 0 0" }}>
-                    Last note: {student.last_note_at ? formatDate(student.last_note_at) : "No notes yet"}
-                  </p>
-                </div>
-              ))}
-            </div>
-          )
+      <section className="dashboard-metrics" aria-label="Student summary">
+        <article className="card metric-card">
+          <p className="metric-label">Total students</p>
+          <p className="metric-value">{metrics.total}</p>
+        </article>
+        <article className="card metric-card">
+          <p className="metric-label">No notes yet</p>
+          <p className="metric-value">{metrics.noNotes}</p>
+        </article>
+        <article className="card metric-card">
+          <p className="metric-label">Active this week</p>
+          <p className="metric-value">{metrics.activeThisWeek}</p>
+        </article>
+        <article className="card metric-card">
+          <p className="metric-label">Inactive 14+ days</p>
+          <p className="metric-value">{metrics.inactive14d}</p>
+        </article>
+      </section>
+
+      <section className="card stack">
+        <div className="dashboard-section-head">
+          <h2 style={{ margin: 0 }}>Students</h2>
+          <p className="helper">{students.length} shown</p>
+        </div>
+
+        {loading ? (
+          <div className="stack" aria-label="Loading students">
+            {Array.from({ length: 5 }).map((_, index) => (
+              <div key={index} className="skeleton-row" />
+            ))}
+          </div>
         ) : null}
-      </div>
 
-      <div className="card stack">
+        {error ? <p className="helper" style={{ color: "#b42318" }}>{error}</p> : null}
+
+        {!loading && !error && students.length === 0 ? (
+          <div className="empty-state">
+            <h3>No students found</h3>
+            <p className="helper">Try clearing filters, add a student, or import a CSV file.</p>
+            <button type="button" onClick={() => setIsAddModalOpen(true)}>Add first student</button>
+          </div>
+        ) : null}
+
+        {!loading && !error && students.length > 0 ? (
+          <>
+            <div className="students-table-wrap" role="region" aria-label="Students table">
+              <table className="students-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Grade</th>
+                    <th>Year</th>
+                    <th>Batch</th>
+                    <th>Last note</th>
+                    <th>Status</th>
+                    <th aria-label="Actions" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {students.map((student) => {
+                    const status = getStudentStatus(student.last_note_at);
+                    return (
+                      <tr key={student.id}>
+                        <td className="cell-name">{student.full_name}</td>
+                        <td>{student.current_grade}</td>
+                        <td>{student.academic_year}</td>
+                        <td>{student.batch_name ?? "—"}</td>
+                        <td>{student.last_note_at ? formatDate(student.last_note_at) : "No notes yet"}</td>
+                        <td><span className={`status-pill status-${status.tone}`}>{status.label}</span></td>
+                        <td>
+                          <Link href={`/students/${student.id}`} className="view-link">View</Link>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mobile-student-list">
+              {students.map((student) => {
+                const status = getStudentStatus(student.last_note_at);
+                return (
+                  <article key={student.id} className="student-mobile-card">
+                    <div className="student-mobile-top">
+                      <h3>{student.full_name}</h3>
+                      <span className={`status-pill status-${status.tone}`}>{status.label}</span>
+                    </div>
+                    <p className="helper">
+                      Grade {student.current_grade} · {student.academic_year} · {student.batch_name ?? "No batch"}
+                    </p>
+                    <p className="helper">Last note: {student.last_note_at ? formatDate(student.last_note_at) : "No notes yet"}</p>
+                    <Link href={`/students/${student.id}`} className="view-link">Open student</Link>
+                  </article>
+                );
+              })}
+            </div>
+          </>
+        ) : null}
+      </section>
+
+      <section className="card stack">
         <h2 style={{ margin: 0 }}>Import CSV</h2>
         <p className="helper">Columns: full_name, current_grade, academic_year, batch (optional).</p>
         {importError ? <p className="helper" style={{ color: "#b42318" }}>{importError}</p> : null}
@@ -423,12 +493,100 @@ export default function DashboardPage() {
         <button type="button" onClick={handleImportStudents} disabled={importLoading}>
           {importLoading ? "Importing..." : "Import students"}
         </button>
-      </div>
+      </section>
+
+      {isAddModalOpen ? (
+        <div className="modal-overlay" role="presentation" onClick={() => setIsAddModalOpen(false)}>
+          <div
+            className="card add-student-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="add-student-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="dashboard-section-head">
+              <h2 id="add-student-title" style={{ margin: 0 }}>Add student</h2>
+              <button type="button" className="btn-ghost-inline" onClick={() => setIsAddModalOpen(false)}>Close</button>
+            </div>
+            <form className="stack" onSubmit={handleAddStudent}>
+              {addError ? <p className="helper" style={{ color: "#b42318" }}>{addError}</p> : null}
+              <div className="dashboard-filter-grid">
+                <div>
+                  <label htmlFor="add-full-name">Full name</label>
+                  <input
+                    id="add-full-name"
+                    type="text"
+                    value={addForm.fullName}
+                    onChange={(event) => setAddForm((prev) => ({ ...prev, fullName: event.target.value }))}
+                    placeholder="Student name"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="add-grade">Grade</label>
+                  <input
+                    id="add-grade"
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    max={12}
+                    step={1}
+                    value={addForm.currentGrade}
+                    onChange={(event) => setAddForm((prev) => ({ ...prev, currentGrade: event.target.value }))}
+                    placeholder="e.g. 7"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="add-year">Academic year</label>
+                  <input
+                    id="add-year"
+                    type="text"
+                    value={addForm.academicYear}
+                    onChange={(event) => setAddForm((prev) => ({ ...prev, academicYear: event.target.value }))}
+                    placeholder="2025-26"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="add-batch">Batch (optional)</label>
+                  <input
+                    id="add-batch"
+                    type="text"
+                    value={addForm.batch}
+                    onChange={(event) => setAddForm((prev) => ({ ...prev, batch: event.target.value }))}
+                    placeholder="Evening"
+                  />
+                </div>
+              </div>
+              <div className="dashboard-header-actions">
+                <button type="button" className="btn-outline" onClick={() => setIsAddModalOpen(false)}>
+                  Cancel
+                </button>
+                <button type="submit" disabled={addLoading}>
+                  {addLoading ? "Adding..." : "Save student"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
 
 function formatDate(value: string) {
-  const date = new Date(value);
-  return date.toLocaleString();
+  return new Date(value).toLocaleString();
+}
+
+function getStudentStatus(lastNoteAt: string | null): { label: string; tone: StatusTone } {
+  if (!lastNoteAt) {
+    return { label: "No notes", tone: "muted" };
+  }
+
+  const now = Date.now();
+  const timestamp = new Date(lastNoteAt).getTime();
+  const diffDays = Math.floor((now - timestamp) / (24 * 60 * 60 * 1000));
+
+  if (diffDays <= 1) return { label: "Active today", tone: "success" };
+  if (diffDays <= 7) return { label: "Active week", tone: "success" };
+  if (diffDays <= 14) return { label: "Needs follow-up", tone: "warning" };
+  return { label: "Inactive", tone: "danger" };
 }
