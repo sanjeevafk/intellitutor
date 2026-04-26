@@ -76,3 +76,4 @@ project-docs
 # OS / Editor
 .idea/
 .vscode/
+.codex
