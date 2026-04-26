@@ -1,35 +1,51 @@
 import { NextResponse } from "next/server";
-import { touchSupabaseStorage } from "./keep-alive";
+import { KeepAliveResult, touchSupabaseStorage, touchUpstashRedis } from "./keep-alive";
 
 export async function handleKeepAlive(): Promise<Response> {
-  let result: Awaited<ReturnType<typeof touchSupabaseStorage>>;
+  let storageResult: KeepAliveResult;
+  let redisResult: KeepAliveResult;
   try {
-    result = await touchSupabaseStorage();
+    [storageResult, redisResult] = await Promise.all([
+      touchSupabaseStorage(),
+      touchUpstashRedis()
+    ]);
   } catch (error) {
-    result = {
+    const message = error instanceof Error ? error.message : "keep-alive failed";
+    storageResult = {
       ok: false,
-      error: error instanceof Error ? error.message : "storage touch failed"
+      error: message
+    };
+    redisResult = {
+      ok: false,
+      error: message
     };
   }
 
+  const overallOk = storageResult.ok && redisResult.ok;
   const payload: Record<string, unknown> = {
     status: "alive"
   };
 
-  if (!result.ok) {
-    payload.storage = "degraded";
-    payload.error = result.error ?? "storage touch failed";
+  payload.storage = storageResult.ok ? "ok" : "degraded";
+  payload.redis = redisResult.ok ? "ok" : "degraded";
+  if (!overallOk) {
+    payload.error = storageResult.error ?? redisResult.error ?? "keep-alive degraded";
   }
-  if (result.bucket) payload.bucket = result.bucket;
-  if (result.path) payload.path = result.path;
-  if (typeof result.statusCode === "number") payload.storage_status = result.statusCode;
-  if (typeof result.durationMs === "number") payload.storage_latency_ms = result.durationMs;
+  if (storageResult.bucket) payload.bucket = storageResult.bucket;
+  if (storageResult.path) payload.path = storageResult.path;
+  if (typeof storageResult.statusCode === "number") payload.storage_status = storageResult.statusCode;
+  if (typeof storageResult.durationMs === "number") payload.storage_latency_ms = storageResult.durationMs;
+  if (typeof redisResult.statusCode === "number") payload.redis_status = redisResult.statusCode;
+  if (typeof redisResult.durationMs === "number") payload.redis_latency_ms = redisResult.durationMs;
+  if (!storageResult.ok && storageResult.error) payload.storage_error = storageResult.error;
+  if (!redisResult.ok && redisResult.error) payload.redis_error = redisResult.error;
 
   return NextResponse.json(payload, {
     status: 200,
     headers: {
       "cache-control": "no-store, max-age=0",
-      "x-keep-alive-storage": result.ok ? "ok" : "degraded"
+      "x-keep-alive-storage": storageResult.ok ? "ok" : "degraded",
+      "x-keep-alive-redis": redisResult.ok ? "ok" : "degraded"
     }
   });
 }

@@ -163,6 +163,7 @@ NEXT_PUBLIC_API_BASE_URL=
 KEEP_ALIVE_STORAGE_BUCKET=
 KEEP_ALIVE_STORAGE_PATH=
 KEEP_ALIVE_TIMEOUT_MS=800
+KEEP_ALIVE_REDIS_TIMEOUT_MS=600
 ```
 
 ### Running integration tests
@@ -196,11 +197,12 @@ For hobby-tier cold-start mitigation, configure UptimeRobot (or similar) to hit 
 - `GET /api/ping`
 - `GET /api/keep-alive`
 
-Each request returns HTTP 200 with `{ "status": "alive" }` and performs a lightweight Supabase Storage `HEAD` request against:
+Each request returns HTTP 200 with `{ "status": "alive" }` and performs lightweight warm-up calls for:
 
 - `/storage/v1/object/public/{KEEP_ALIVE_STORAGE_BUCKET}/{KEEP_ALIVE_STORAGE_PATH}`
+- `UPSTASH_REDIS_REST_URL/ping`
 
-If the file does not exist (`404`), the endpoint still treats it as a successful storage touch. Temporary Supabase/network failures are caught so the route still returns HTTP 200 (with degraded metadata) to avoid false UptimeRobot downtime alerts.
+If the storage file does not exist (`404`), the endpoint still treats it as a successful storage touch. Temporary Supabase/Upstash/network failures are caught so the route still returns HTTP 200 (with degraded metadata) to avoid false UptimeRobot downtime alerts.
 
 ---
 
