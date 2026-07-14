@@ -11,11 +11,13 @@
   },
   "dependencies": {
     "@google/genai": "^1.44.0",
-    "@supabase/supabase-js": "^2.99.1",
+    "@libsql/client": "^0.14.0",
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.37.0",
-    "next": "^16.1.6",
+    "jose": "^5.2.4",
+    "next": "^16.2.10",
     "pdf-lib": "^1.17.1",
+    "protobufjs": "^8.7.1",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "swr": "^2.4.1"
