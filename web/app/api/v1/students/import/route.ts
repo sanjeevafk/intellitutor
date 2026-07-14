@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { ApiError } from "../../../_lib/api-error";
 import { requireAuth } from "../../../_lib/auth";
 import { withRoute } from "../../../_lib/with-route";
+import { getDb } from "@/lib/db";
+import { randomUUID } from "crypto";
 
 type ImportError = {
   row: number;
@@ -27,7 +29,7 @@ const MAX_CSV_MB = Math.round(MAX_CSV_BYTES / 1_000_000);
 const MAX_ROWS = 5_000;
 
 export const POST = withRoute(async ({ request, requestId }) => {
-  const { supabase, userId } = await requireAuth(request);
+  const { userId } = await requireAuth(request);
 
   const contentType = request.headers.get("content-type") ?? "";
   let csvText = "";
@@ -147,16 +149,20 @@ export const POST = withRoute(async ({ request, requestId }) => {
 
   let insertedCount = 0;
   if (validRows.length > 0 && !rowLimitExceeded) {
-    const { data, error } = await supabase
-      .from("students")
-      .insert(validRows)
-      .select("id");
-
-    if (error) {
-      throw new ApiError(500, "failed to import students", error);
+    const db = getDb();
+    try {
+      const nowStr = new Date().toISOString();
+      const batchQueries = validRows.map((vRow) => ({
+        sql: `INSERT INTO students (id, teacher_id, full_name, current_grade, academic_year, batch_name, created_at, last_note_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`,
+        args: [randomUUID(), userId, vRow.full_name, vRow.current_grade, vRow.academic_year, vRow.batch_name, nowStr]
+      }));
+      
+      await db.batch(batchQueries);
+      insertedCount = validRows.length;
+    } catch (err) {
+      throw new ApiError(500, "failed to import students", err);
     }
-
-    insertedCount = data?.length ?? validRows.length;
   }
 
   const result: ImportResult = {

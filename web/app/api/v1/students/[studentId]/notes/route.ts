@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { ApiError } from "../../../../_lib/api-error";
 import { requireAuth } from "../../../../_lib/auth";
 import { withRoute } from "../../../../_lib/with-route";
+import { getDb } from "@/lib/db";
+import { randomUUID } from "crypto";
 
 type NoteInput = {
   content?: string;
@@ -9,31 +11,42 @@ type NoteInput = {
 };
 
 export const GET = withRoute(async ({ request, params, requestId }) => {
-  const { supabase, userId } = await requireAuth(request);
+  const { userId } = await requireAuth(request);
   const studentId = getStudentId(params, request);
   if (!studentId) {
     throw new ApiError(400, "missing student_id");
   }
 
-  const { data, error } = await supabase
-    .from("student_notes")
-    .select("id, student_id, teacher_id, content, tag, created_at")
-    .eq("student_id", studentId)
-    .eq("teacher_id", userId)
-    .order("created_at", { ascending: false });
+  const db = getDb();
+  try {
+    const { rows } = await db.execute({
+      sql: `SELECT id, student_id, teacher_id, content, tag, created_at 
+            FROM student_notes 
+            WHERE student_id = ? AND teacher_id = ? 
+            ORDER BY created_at DESC`,
+      args: [studentId, userId]
+    });
 
-  if (error) {
-    throw new ApiError(500, "failed to fetch notes", error);
+    const notes = rows.map((row) => ({
+      id: row.id,
+      student_id: row.student_id,
+      teacher_id: row.teacher_id,
+      content: row.content,
+      tag: row.tag,
+      created_at: row.created_at
+    }));
+
+    const response = NextResponse.json(notes, { status: 200 });
+    response.headers.set("x-user-id", userId);
+    response.headers.set("x-request-id", requestId);
+    return response;
+  } catch (err) {
+    throw new ApiError(500, "failed to fetch notes", err);
   }
-
-  const response = NextResponse.json(data ?? [], { status: 200 });
-  response.headers.set("x-user-id", userId);
-  response.headers.set("x-request-id", requestId);
-  return response;
 });
 
 export const POST = withRoute(async ({ request, params, requestId }) => {
-  const { supabase, userId } = await requireAuth(request);
+  const { userId } = await requireAuth(request);
   const studentId = getStudentId(params, request);
   if (!studentId) {
     throw new ApiError(400, "missing student_id");
@@ -52,40 +65,50 @@ export const POST = withRoute(async ({ request, params, requestId }) => {
     throw new ApiError(400, "content is required");
   }
 
-  const { data: student, error: studentError } = await supabase
-    .from("students")
-    .select("id")
-    .eq("id", studentId)
-    .eq("teacher_id", userId)
-    .maybeSingle();
+  const db = getDb();
+  try {
+    // 1. Verify student exists and belongs to the teacher
+    const studentCheck = await db.execute({
+      sql: "SELECT id FROM students WHERE id = ? AND teacher_id = ?",
+      args: [studentId, userId]
+    });
 
-  if (studentError) {
-    throw new ApiError(500, "failed to verify student", studentError);
-  }
+    if (studentCheck.rows.length === 0) {
+      throw new ApiError(404, "student not found");
+    }
 
-  if (!student) {
-    throw new ApiError(404, "student not found");
-  }
+    const noteId = randomUUID();
+    const createdAt = new Date().toISOString();
 
-  const { data, error } = await supabase
-    .from("student_notes")
-    .insert({
+    // 2. Perform the insert and programmatic trigger update in a transaction-like batch
+    await db.batch([
+      {
+        sql: `INSERT INTO student_notes (id, student_id, teacher_id, content, tag, created_at)
+              VALUES (?, ?, ?, ?, ?, ?)`,
+        args: [noteId, studentId, userId, content, tag, createdAt]
+      },
+      {
+        sql: "UPDATE students SET last_note_at = ? WHERE id = ? AND teacher_id = ?",
+        args: [createdAt, studentId, userId]
+      }
+    ]);
+
+    const response = NextResponse.json({
+      id: noteId,
       student_id: studentId,
       teacher_id: userId,
       content,
-      tag
-    })
-    .select("id, student_id, teacher_id, content, tag, created_at")
-    .single();
+      tag,
+      created_at: createdAt
+    }, { status: 201 });
 
-  if (error) {
-    throw new ApiError(500, "failed to create note", error);
+    response.headers.set("x-user-id", userId);
+    response.headers.set("x-request-id", requestId);
+    return response;
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    throw new ApiError(500, "failed to create note", err);
   }
-
-  const response = NextResponse.json(data, { status: 201 });
-  response.headers.set("x-user-id", userId);
-  response.headers.set("x-request-id", requestId);
-  return response;
 });
 
 function getStudentId(params: Record<string, string> | undefined, request: Request): string | null {

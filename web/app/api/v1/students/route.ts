@@ -3,10 +3,13 @@ import { ApiError } from "../../_lib/api-error";
 import { requireAuth } from "../../_lib/auth";
 import { requireEnv } from "../../_lib/env";
 import { getRequestId, withRoute } from "../../_lib/with-route";
+import { getDb } from "@/lib/db";
+import { randomUUID } from "crypto";
 
 export const GET = withRoute(async ({ request, requestId }) => {
-  const { supabase, userId } = await requireAuth(request);
+  const { userId } = await requireAuth(request);
   const env = requireEnv();
+  const db = getDb();
 
   const url = new URL(request.url);
   const params = url.searchParams;
@@ -15,48 +18,64 @@ export const GET = withRoute(async ({ request, requestId }) => {
   const batchParam = params.get("batch");
   const searchParam = params.get("search");
 
-  let query = supabase
-    .from("students")
-    .select("id, full_name, current_grade, academic_year, batch_name, created_at, last_note_at")
-    .eq("teacher_id", userId)
-    .order("last_note_at", { ascending: false, nullsFirst: false })
-    .order("created_at", { ascending: false });
+  let sql = `SELECT id, full_name, current_grade, academic_year, batch_name, created_at, last_note_at 
+             FROM students 
+             WHERE teacher_id = ?`;
+  const args: any[] = [userId];
 
   if (gradeParam) {
     const grade = Number.parseInt(gradeParam, 10);
     if (!Number.isFinite(grade)) {
       throw new ApiError(400, "grade must be a number");
     }
-    query = query.eq("current_grade", grade);
+    sql += " AND current_grade = ?";
+    args.push(grade);
   }
 
   if (yearParam) {
-    query = query.eq("academic_year", yearParam);
+    sql += " AND academic_year = ?";
+    args.push(yearParam);
   }
 
   if (batchParam) {
-    query = query.eq("batch_name", batchParam);
+    sql += " AND batch_name = ?";
+    args.push(batchParam);
   }
 
   if (searchParam) {
     const normalized = searchParam.trim();
     if (normalized.length > 0) {
-      // Escape LIKE wildcards in user input to prevent pattern injection
+      // Escape LIKE wildcards
       const escaped = normalized.replace(/[%_\\]/g, '\\$&');
       const pattern = env.searchPrefixOnly ? `${escaped}%` : `%${escaped}%`;
-      query = query.ilike("full_name", pattern);
+      sql += " AND LOWER(full_name) LIKE LOWER(?) ESCAPE '\\'";
+      args.push(pattern);
     }
   }
 
-  const { data, error } = await query;
-  if (error) {
-    throw new ApiError(500, "failed to fetch students", error);
-  }
+  sql += " ORDER BY last_note_at IS NULL ASC, last_note_at DESC, created_at DESC";
 
-  const response = NextResponse.json(data ?? [], { status: 200 });
-  response.headers.set("x-user-id", userId);
-  response.headers.set("x-request-id", requestId);
-  return response;
+  try {
+    const { rows } = await db.execute({ sql, args });
+    
+    // Transform rows array to match standard JS objects if needed
+    const students = rows.map((row) => ({
+      id: row.id,
+      full_name: row.full_name,
+      current_grade: row.current_grade,
+      academic_year: row.academic_year,
+      batch_name: row.batch_name,
+      created_at: row.created_at,
+      last_note_at: row.last_note_at
+    }));
+
+    const response = NextResponse.json(students, { status: 200 });
+    response.headers.set("x-user-id", userId);
+    response.headers.set("x-request-id", requestId);
+    return response;
+  } catch (err) {
+    throw new ApiError(500, "failed to fetch students", err);
+  }
 });
 
 type StudentInput = {
@@ -67,7 +86,8 @@ type StudentInput = {
 };
 
 export const POST = withRoute(async ({ request, requestId }) => {
-  const { supabase, userId } = await requireAuth(request);
+  const { userId } = await requireAuth(request);
+  const db = getDb();
 
   let body: StudentInput;
   try {
@@ -93,26 +113,32 @@ export const POST = withRoute(async ({ request, requestId }) => {
     throw new ApiError(400, "current_grade must be a number");
   }
 
-  const { data, error } = await supabase
-    .from("students")
-    .insert({
-      teacher_id: userId,
+  const studentId = randomUUID();
+  const createdAt = new Date().toISOString();
+
+  try {
+    await db.execute({
+      sql: `INSERT INTO students (id, teacher_id, full_name, current_grade, academic_year, batch_name, created_at, last_note_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`,
+      args: [studentId, userId, fullName, gradeRaw, academicYear, batchName || null, createdAt]
+    });
+
+    const response = NextResponse.json({
+      id: studentId,
       full_name: fullName,
       current_grade: gradeRaw,
       academic_year: academicYear,
-      batch_name: batchName || null
-    })
-    .select("id, full_name, current_grade, academic_year, batch_name, created_at, last_note_at")
-    .single();
+      batch_name: batchName || null,
+      created_at: createdAt,
+      last_note_at: null
+    }, { status: 201 });
 
-  if (error) {
-    throw new ApiError(500, "failed to create student", error);
+    response.headers.set("x-user-id", userId);
+    response.headers.set("x-request-id", requestId);
+    return response;
+  } catch (err) {
+    throw new ApiError(500, "failed to create student", err);
   }
-
-  const response = NextResponse.json(data, { status: 201 });
-  response.headers.set("x-user-id", userId);
-  response.headers.set("x-request-id", requestId);
-  return response;
 });
 
 export async function OPTIONS(request: Request) {
@@ -124,5 +150,3 @@ export async function OPTIONS(request: Request) {
     }
   });
 }
-
- 
