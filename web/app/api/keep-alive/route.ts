@@ -1,8 +1,9 @@
-import { handleKeepAlive } from "../_lib/keep-alive-route";
+import { NextResponse } from "next/server";
 
+// Health check endpoint — used by uptime monitors, load balancers, etc.
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export async function GET() {
-  return handleKeepAlive();
+  return NextResponse.json({ status: "ok" }, { status: 200 });
 }
