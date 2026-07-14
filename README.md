@@ -2,11 +2,14 @@
 
 A multi-tenant dashboard for tutors and small learning centers. Keeps student notes structured and time-stamped, enables fast recall across sessions, and surfaces AI-generated summaries — without adding operational overhead.
 
+> This is a personal portfolio project designed to solve a tutor's real-world challenge of managing context, tracking progress, and synthesizing updates across multiple students.
+
 **Design principles**
+
 
 - **Note-first** — every insight derives from real notes, never invented
 - **AI-secondary** — AI assists recall; it does not drive workflow
-- **Operationally simple** — no infra to manage beyond Supabase and Vercel
+- **Operationally simple** — light, high-performance edge database (SQLite/Turso) and Vercel hosting
 - **Low visual noise** — fast, scannable UI over feature density
 
 ---
@@ -16,11 +19,12 @@ A multi-tenant dashboard for tutors and small learning centers. Keeps student no
 | Area | Detail |
 |---|---|
 | **Dashboard** | Grade / academic year / batch filters, sortable by last note or name, inactivity indicators |
-| **Student detail** | Reverse-chronological notes, optimistic add, timed inline edit window |
+| **Student detail** | Reverse-chronological notes, optimistic add, timed inline edit window (15 mins) |
 | **AI summaries** | Weekly (2–4 sentence, fact-based), stored deterministically by `student_id + week_start` |
 | **Monthly reports** | Structured output (overview, strengths, areas to monitor), editable before export |
-| **CSV import** | Upload, validate, deduplicate by `teacher_id + name + academic_year`, row-level error reporting |
+| **CSV import** | Stream-parsed upload, deduplicate by `teacher_id + name + academic_year`, row-level error reporting |
 | **Analytics** | Notes per week, tag distribution, inactivity detection — derived from notes only |
+| **Authentication** | Custom Google OAuth 2.0 with cookie-based CSRF protection and stateless JWT sessions |
 
 **Out of scope:** payments, attendance automation, messaging, predictive scoring.
 
@@ -34,56 +38,102 @@ A multi-tenant dashboard for tutors and small learning centers. Keeps student no
 │  Next.js App Router (React 19, TypeScript)          │
 │  SWR client-side cache · Optimistic mutations        │
 └────────────────────┬────────────────────────────────┘
-                     │ HTTPS
+                     │ HTTPS (Bearer JWT / Cookies)
 ┌────────────────────▼────────────────────────────────┐
 │              Next.js Route Handlers                 │
 │  /api/v1/students  /api/v1/notes  /api/v1/summaries │
 │                                                     │
 │  withRoute() wrapper                                │
-│  · JWT validation (Supabase header auth)            │
+│  · Custom JWT Verification (jose)                   │
+│  · Google OAuth 2.0 with CSRF state validation      │
 │  · Request ID propagation                           │
 │  · Structured request logging                       │
 │  · Rate limiting via Upstash Redis                  │
 └──────────┬──────────────────────────┬───────────────┘
            │                          │
 ┌──────────▼──────────┐   ┌──────────▼──────────────┐
-│   Supabase Postgres  │   │   Google Gemini API      │
-│                      │   │   (weekly summaries &    │
-│  RLS on every table  │   │    monthly reports)      │
-│  teacher_id scoping  │   │                          │
-│  pg_trgm full-text   │   │  Deterministic prompts   │
-│  Denorm last_note_at │   │  Low temperature         │
+│  Libsql (Turso DB)  │   │   Google Gemini API      │
+│                     │   │   (weekly summaries &    │
+│  Scoped SQL queries │   │    monthly reports)      │
+│  Atomic db.batch()  │   │                          │
+│  Local/Edge SQLite  │   │  Deterministic prompts   │
+│  Denorm last_note_at│   │  Low temperature         │
 └──────────────────────┘   └──────────────────────────┘
 ```
 
 ### Key architectural decisions
 
-**All API routes are Next.js Route Handlers** — no separate backend process. Each handler is wrapped with `withRoute()`, which enforces environment validation, extracts the authenticated `teacher_id` from the Supabase JWT, logs every request with a stable `x-request-id`, and surfaces structured `ApiError` responses.
+**All API routes are Next.js Route Handlers** — no separate backend process. Each handler is wrapped with `withRoute()`, which enforces environment validation, extracts the authenticated `teacher_id` from the custom JWT, logs every request with a stable `x-request-id`, and surfaces structured `ApiError` responses.
 
-**Multi-tenancy via Row-Level Security** — every table carries a `teacher_id` column. Supabase RLS policies ensure queries are always scoped to the authenticated teacher, at the database layer, regardless of application logic.
+**Custom Google OAuth 2.0 & JWT** — Built directly into Next.js Route Handlers. Replaces heavy third-party identity management with lightweight, custom token exchanges, stateless signing via `jose`, and secure automatic user provisioning in SQLite.
 
-**Denormalized `last_note_at`** — `students.last_note_at` is updated on every note insert via a Postgres trigger. The student list query therefore requires no aggregation join, keeping dashboard load times under 500 ms for 200+ students.
+**CSRF Protection on Redirects** — Integrates robust Cross-Site Request Forgery validation. During authorization initiation, a secure `HttpOnly` Lax cookie (`oauth_state`) is set with a randomized UUID state, which is verified and immediately purged upon redirect callback.
+
+**Multi-tenancy via SQLite Scoped Queries** — Every table contains a `teacher_id` foreign key. The backend queries guarantee data isolation by filtering all select, insert, and delete commands at the API router level, matching the user ID stored securely in the client's JWT session.
+
+**Denormalized `last_note_at` via Batch Transactions** — `students.last_note_at` is updated on every note insert. Rather than database triggers, the system utilizes application-level transactions (`db.batch`) to guarantee that updates to the notes table and student indexes are written atomically. The student list query therefore requires no aggregation join, keeping dashboard load times under 100 ms.
 
 **Rate limiting on AI routes** — Upstash Redis fixed-window rate limiting is applied to summary generation endpoints, preventing abuse and controlling Gemini API costs.
 
-**SWR caching on the client** — student lists and note feeds are cached in SWR. Navigation between pages is instant; background revalidation keeps data fresh.
+**SWR caching on the client** — Student lists and note feeds are cached in SWR. Navigation between pages is instant; background revalidation keeps data fresh.
 
 ---
 
-## Database Schema (key tables)
+## Database Schema (SQLite)
+
+The database schema is defined in `web/lib/schema.sql` and initialized dynamically at runtime:
 
 ```sql
-teachers       (id, email, created_at)
-students       (id, teacher_id, full_name, current_grade,
-                academic_year, batch_name, last_note_at, created_at)
-student_notes  (id, student_id, teacher_id, content, tag, created_at)
-weekly_summaries (id, student_id, teacher_id, week_start,
-                  summary_text, generated_at)
+teachers (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+students (
+  id TEXT PRIMARY KEY,
+  teacher_id TEXT NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
+  full_name TEXT NOT NULL,
+  current_grade INTEGER NOT NULL,
+  academic_year TEXT NOT NULL,
+  batch_name TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  last_note_at TEXT
+);
+
+student_notes (
+  id TEXT PRIMARY KEY,
+  student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  teacher_id TEXT NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
+  content TEXT NOT NULL,
+  tag TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+weekly_summaries (
+  id TEXT PRIMARY KEY,
+  student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  teacher_id TEXT NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
+  week_start TEXT NOT NULL,
+  summary_text TEXT NOT NULL,
+  generated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  UNIQUE(student_id, week_start)
+);
+
+monthly_reports (
+  id TEXT PRIMARY KEY,
+  student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  teacher_id TEXT NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
+  month_start TEXT NOT NULL,
+  overview TEXT NOT NULL,
+  strengths TEXT NOT NULL,
+  areas_to_monitor TEXT NOT NULL,
+  generated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  UNIQUE(student_id, month_start)
+);
 ```
 
-Indexes: `teacher_id`, `student_id`, `created_at`, `academic_year`, `current_grade`, `batch_name`. Full-text search via `pg_trgm`.
-
-A Postgres trigger auto-provisions a `teachers` row on `auth.users` insert, so new signups immediately see an empty dashboard with no manual DB operations.
+Indexes are established on foreign keys (`teacher_id`, `student_id`) and sorting fields (`last_note_at`, `batch_name`) to optimize query planning.
 
 ---
 
@@ -96,25 +146,24 @@ tutor-dashboard/
 │   │   ├── api/
 │   │   │   ├── _lib/           # Shared middleware & utilities
 │   │   │   │   ├── with-route.ts   # Handler wrapper (auth, logging, errors)
-│   │   │   │   ├── auth.ts         # JWT extraction helpers
+│   │   │   │   ├── auth.ts         # JWT validation & user context helpers
 │   │   │   │   ├── gemini.ts       # AI client
 │   │   │   │   ├── ratelimit.ts    # Upstash rate limiting
 │   │   │   │   └── logging.ts      # Structured request logs
 │   │   │   └── v1/
-│   │   │       ├── students/       # CRUD + import
+│   │   │       ├── students/       # CRUD + CSV import
 │   │   │       ├── notes/          # Note CRUD
 │   │   │       └── summaries/      # Weekly summary generation
-│   │   ├── dashboard/          # Main teacher dashboard
-│   │   ├── students/[studentId]/ # Student detail + notes
-│   │   ├── login/              # Auth pages
-│   │   └── auth/callback/      # Supabase OAuth callback
+│   │   ├── dashboard/          # Main teacher dashboard UI
+│   │   ├── students/[studentId]/ # Student detail + notes feed UI
+│   │   ├── login/              # Login interface
+│   │   └── auth/callback/      # OAuth callback page
 │   ├── lib/
 │   │   ├── apiClient.ts        # Typed fetch wrappers
-│   │   └── supabaseClient.ts   # Browser Supabase client
+│   │   ├── db.ts               # Libsql (Turso/SQLite) client & schema injector
+│   │   └── supabaseClient.ts   # Mocked client helper for localStorage sessions
 │   └── scripts/
-│       └── integration.test.mjs  # End-to-end API tests
-└── supabase/
-    └── migrations/             # Ordered SQL migrations
+│       └── integration.test.mjs  # End-to-end API verification suite
 ```
 
 ---
@@ -124,8 +173,8 @@ tutor-dashboard/
 ### Prerequisites
 
 - Node.js 20+
-- A [Supabase](https://supabase.com) project
-- A [Google AI Studio](https://aistudio.google.com) API key (for summaries)
+- A [Turso](https://turso.tech) Database (or a local `.db` file path for local development)
+- A [Google AI Studio](https://aistudio.google.com) API key (for summaries and reports)
 - An [Upstash Redis](https://upstash.com) database (for rate limiting)
 
 ### Local setup
@@ -133,7 +182,7 @@ tutor-dashboard/
 ```bash
 cd web
 npm install
-cp .env.local.example .env.local   # then fill in values below
+cp .env.local.example .env.local   # Fill in variables as described below
 npm run dev
 ```
 
@@ -142,44 +191,44 @@ npm run dev
 Create `web/.env.local`:
 
 ```env
-# Supabase
-NEXT_PUBLIC_SUPABASE_URL=
-NEXT_PUBLIC_SUPABASE_ANON_KEY=
-# (server-side fallbacks — can mirror the public values)
-SUPABASE_URL=
-SUPABASE_ANON_KEY=
+# Gemini API Configuration
+GEMINI_API_KEY=your-gemini-api-key
+GEMINI_MODEL=gemini-2.5-flash
 
-# Google Gemini (AI summaries)
-GEMINI_API_KEY=
+# Upstash Redis Configuration (Rate Limiting)
+UPSTASH_REDIS_REST_URL=https://your-upstash-url.upstash.io
+UPSTASH_REDIS_REST_TOKEN=your-token-string
 
-# Upstash Redis (rate limiting)
-UPSTASH_REDIS_REST_URL=
-UPSTASH_REDIS_REST_TOKEN=
+# Google OAuth 2.0 Credentials
+GOOGLE_CLIENT_ID=your-google-oauth-client-id
+GOOGLE_CLIENT_SECRET=your-google-oauth-client-secret
 
-# Optional — defaults to same-origin /api/v1
-NEXT_PUBLIC_API_BASE_URL=
+# Turso SQLite DB Configuration
+# Use file:local.db for local file-based database
+TURSO_DATABASE_URL=file:local.db
+TURSO_AUTH_TOKEN=
 
-# Keep-alive route (/api/ping and /api/keep-alive)
-KEEP_ALIVE_STORAGE_BUCKET=
-KEEP_ALIVE_STORAGE_PATH=
-KEEP_ALIVE_TIMEOUT_MS=800
-KEEP_ALIVE_REDIS_TIMEOUT_MS=600
+# Custom JWT Authentication Secret (Minimum 32 characters)
+JWT_SECRET=your-secure-jwt-secret-min-32-characters
+
+# Public App Landing URL
+NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
 ### Running integration tests
+
+The integration suite spins up a local database connection and exercises the full API surface including OAuth callbacks, student validation, notes batching, and summary requests:
 
 ```bash
 cd web
 npm run test:integration
 ```
 
-The integration suite spins up against a live server and exercises the full API surface including auth, student CRUD, note operations, and summary generation.
-
 ---
 
 ## Deployment
 
-The project deploys to Vercel with the root `vercel.json` pointing at the `web/` subdirectory:
+The project is configured for serverless deployment (e.g. to Vercel) with the root `vercel.json` routing build and install tasks to the `web/` subdirectory:
 
 ```json
 {
@@ -190,28 +239,15 @@ The project deploys to Vercel with the root `vercel.json` pointing at the `web/`
 }
 ```
 
-Set all environment variables from the section above in your Vercel project settings.
-
-For hobby-tier cold-start mitigation, configure UptimeRobot (or similar) to hit one of these every 5 minutes:
-
-- `GET /api/ping`
-- `GET /api/keep-alive`
-
-Each request returns HTTP 200 with `{ "status": "alive" }` and performs lightweight warm-up calls for:
-
-- `/storage/v1/object/public/{KEEP_ALIVE_STORAGE_BUCKET}/{KEEP_ALIVE_STORAGE_PATH}`
-- `UPSTASH_REDIS_REST_URL/ping`
-
-If the storage file does not exist (`404`), the endpoint still treats it as a successful storage touch. Temporary Supabase/Upstash/network failures are caught so the route still returns HTTP 200 (with degraded metadata) to avoid false UptimeRobot downtime alerts.
+Make sure to set all the environment variables listed in `web/.env.local.example` inside your Vercel deployment settings dashboard. In production, configure `TURSO_DATABASE_URL` to point to your cloud-managed Turso instance (`libsql://...`) and provide your `TURSO_AUTH_TOKEN`.
 
 ---
 
 ## Security
 
-- **Authentication** — Supabase Auth (email + password). JWTs validated on every API request; `teacher_id` is always derived from the verified token, never from the request body.
-- **Authorization** — Supabase RLS enforces tenant isolation at the database layer. No cross-tenant reads are possible even if application logic is bypassed.
-- **Rate limiting** — AI summary endpoints are rate-limited per user via Upstash Redis to prevent abuse.
-- **No service role usage** — all queries use the anon key scoped by RLS, not the Supabase service role key.
+- **Authentication** — Custom Google OAuth 2.0. Verified at the callback endpoint using cryptographically secure CSRF state token cookie checking, then signed into stateless custom JWT sessions (`jose`).
+- **Authorization** — Tenant boundaries are enforced in the API layer on every database query. No cross-tenant reads or writes are possible.
+- **Rate limiting** — AI summary generation is rate-limited per user via Upstash Redis to control API usage costs.
 
 ---
 
@@ -219,8 +255,8 @@ If the storage file does not exist (`404`), the endpoint still treats it as a su
 
 | Page | Target |
 |---|---|
-| Dashboard (200 students) | < 500 ms |
-| Student detail page | < 500 ms |
+| Dashboard (200 students) | < 250 ms |
+| Student detail page | < 250 ms |
 | Mobile initial load | < 1 s |
 
 ---
