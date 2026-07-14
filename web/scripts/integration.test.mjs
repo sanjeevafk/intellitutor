@@ -1,93 +1,86 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import { createClient } from "@supabase/supabase-js";
+import fs from "node:fs";
+import path from "node:path";
+import { SignJWT } from "jose";
+import { createClient } from "@libsql/client";
 
-const required = ["TEST_TEACHER_EMAIL", "TEST_TEACHER_PASSWORD"];
-const missingCreds = required.filter((key) => !process.env[key]);
-
-if (missingCreds.length > 0) {
-  if (process.env.CI === "true") {
-    console.log(`Skipping integration test: missing env vars ${missingCreds.join(", ")}`);
-    process.exit(0);
+// 1. Load environment variables from .env.local
+try {
+  const envPath = path.join(process.cwd(), ".env.local");
+  if (fs.existsSync(envPath)) {
+    const lines = fs.readFileSync(envPath, "utf8").split("\n");
+    for (const line of lines) {
+      const match = line.match(/^\s*([^#=]+)\s*=\s*(.*)\s*$/);
+      if (match) {
+        const key = match[1].trim();
+        let val = match[2].trim();
+        if (val.startsWith('"') && val.endsWith('"')) {
+          val = val.slice(1, -1);
+        }
+        process.env[key] = val;
+      }
+    }
   }
-  throw new Error(`Missing required env var: ${missingCreds[0]}`);
+} catch (e) {
+  console.warn("Failed to load .env.local in test:", e.message);
 }
 
-const supabaseUrlEnv = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseAnonKeyEnv = process.env.SUPABASE_ANON_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
-
-if (!supabaseUrlEnv) {
-  throw new Error("Missing required env var: SUPABASE_URL or NEXT_PUBLIC_SUPABASE_URL");
-}
-
-if (!supabaseAnonKeyEnv) {
-  throw new Error("Missing required env var: SUPABASE_ANON_KEY or NEXT_PUBLIC_SUPABASE_ANON_KEY");
-}
-
+const jwtSecret = process.env.JWT_SECRET;
+const dbUrl = process.env.TURSO_DATABASE_URL;
 const baseUrl = (process.env.TEST_BASE_URL ?? "http://localhost:3000").replace(/\/+$/, "");
-const supabaseUrl = supabaseUrlEnv;
-const supabaseAnonKey = supabaseAnonKeyEnv;
-const email = process.env.TEST_TEACHER_EMAIL;
-const password = process.env.TEST_TEACHER_PASSWORD;
 
-const authClient = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: { persistSession: false, autoRefreshToken: false }
-});
-
-const { data: authData, error: authError } = await authClient.auth.signInWithPassword({
-  email,
-  password
-});
-
-if (authError || !authData.session || !authData.user) {
-  throw new Error(`Failed to sign in test user: ${authError?.message ?? "unknown error"}`);
+if (!jwtSecret) {
+  throw new Error("Missing required env var: JWT_SECRET");
+}
+if (!dbUrl) {
+  throw new Error("Missing required env var: TURSO_DATABASE_URL");
 }
 
-const token = authData.session.access_token;
-const userId = authData.user.id;
-
-const authedClient = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: { persistSession: false, autoRefreshToken: false },
-  global: { headers: { Authorization: `Bearer ${token}` } }
+// 2. Initialize db client and create test teacher
+const db = createClient({
+  url: dbUrl,
+  authToken: process.env.TURSO_AUTH_TOKEN || undefined
 });
 
-const teacherEmail = authData.user.email ?? email;
-const { error: teacherError } = await authedClient
-  .from("teachers")
-  .upsert({ id: userId, email: teacherEmail });
+const teacherId = crypto.randomUUID();
+const teacherEmail = "test-teacher@example.com";
 
-if (teacherError) {
-  throw new Error(`Failed to ensure teacher row: ${teacherError.message}`);
-}
+await db.execute({
+  sql: "INSERT OR IGNORE INTO teachers (id, email) VALUES (?, ?)",
+  args: [teacherId, teacherEmail]
+});
 
+// 3. Generate a custom JWT signed token for the teacher
+const secret = new TextEncoder().encode(jwtSecret);
+const token = await new SignJWT({ email: teacherEmail, sub: teacherId })
+  .setProtectedHeader({ alg: "HS256" })
+  .setIssuedAt()
+  .setExpirationTime("1h")
+  .sign(secret);
+
+// 4. Seed a test student directly in the SQLite database
+const studentId = crypto.randomUUID();
 const studentName = `Test Student ${crypto.randomUUID().slice(0, 8)}`;
-const { data: student, error: studentError } = await authedClient
-  .from("students")
-  .insert({
-    teacher_id: userId,
-    full_name: studentName,
-    current_grade: 7,
-    academic_year: "2025-26",
-    batch_name: "Test"
-  })
-  .select("id")
-  .single();
-
-if (studentError || !student) {
-  throw new Error(`Failed to insert student: ${studentError?.message ?? "unknown"}`);
-}
+await db.execute({
+  sql: `INSERT INTO students (id, teacher_id, full_name, current_grade, academic_year, batch_name, created_at, last_note_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`,
+  args: [studentId, teacherId, studentName, 7, "2025-26", "Test", new Date().toISOString()]
+});
 
 const headers = {
   Authorization: `Bearer ${token}`,
   "Content-Type": "application/json"
 };
 
+// 5. Query student list via API
 const listRes = await fetch(`${baseUrl}/api/v1/students?search=${encodeURIComponent("Test Student")}`, {
   headers
 });
 assert.equal(listRes.status, 200, `Expected 200 for students list, got ${listRes.status}`);
 
-const noteRes = await fetch(`${baseUrl}/api/v1/students/${student.id}/notes`, {
+// 6. Add student note via API
+const noteRes = await fetch(`${baseUrl}/api/v1/students/${studentId}/notes`, {
   method: "POST",
   headers,
   body: JSON.stringify({ content: "Focused well on fractions", tag: "math" })
@@ -96,6 +89,7 @@ assert.equal(noteRes.status, 201, `Expected 201 for add note, got ${noteRes.stat
 const notePayload = await noteRes.json();
 assert.ok(notePayload?.id, "Expected note id");
 
+// 7. Update note via API
 const updateRes = await fetch(`${baseUrl}/api/v1/notes/${notePayload.id}`, {
   method: "PUT",
   headers,
@@ -103,10 +97,11 @@ const updateRes = await fetch(`${baseUrl}/api/v1/notes/${notePayload.id}`, {
 });
 assert.equal(updateRes.status, 200, `Expected 200 for update note, got ${updateRes.status}`);
 
+// 8. Generate weekly summary via API
 const summaryRes = await fetch(`${baseUrl}/api/v1/summaries/weekly`, {
   method: "POST",
   headers,
-  body: JSON.stringify({ student_id: student.id })
+  body: JSON.stringify({ student_id: studentId })
 });
 assert.equal(summaryRes.status, 200, `Expected 200 for weekly summary, got ${summaryRes.status}`);
 const summaryPayload = await summaryRes.json();
