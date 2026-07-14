@@ -16,6 +16,11 @@ export default function AuthCallbackPage() {
       return;
     }
 
+    const token = params.get("token");
+    if (token) {
+      localStorage.setItem("tutor_auth_token", token);
+    }
+
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "SIGNED_IN" && session) {
         authListener.subscription.unsubscribe();
