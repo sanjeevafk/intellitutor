@@ -4,6 +4,8 @@ import { requireAuth } from "../../../_lib/auth";
 import { generateMonthlyReport } from "../../../_lib/gemini";
 import { enforceRateLimit } from "../../../_lib/ratelimit";
 import { withRoute } from "../../../_lib/with-route";
+import { getDb } from "@/lib/db";
+import { randomUUID } from "crypto";
 
 type MonthlyReportRequest = {
   student_id?: string;
@@ -11,7 +13,7 @@ type MonthlyReportRequest = {
 };
 
 export const POST = withRoute(async ({ request, requestId }) => {
-  const { supabase, userId } = await requireAuth(request);
+  const { userId } = await requireAuth(request);
 
   let body: MonthlyReportRequest;
   try {
@@ -30,72 +32,103 @@ export const POST = withRoute(async ({ request, requestId }) => {
 
   const rateResult = await enforceRateLimit(`monthly_report:${userId}`);
 
-  const { data: student, error: studentError } = await supabase
-    .from("students")
-    .select("id, full_name")
-    .eq("id", studentId)
-    .eq("teacher_id", userId)
-    .single();
+  if (!rateResult.success) {
+    const response = NextResponse.json(
+      { error: "rate limit exceeded" },
+      { status: 429 }
+    );
+    response.headers.set("x-ratelimit-limit", rateResult.limit.toString());
+    response.headers.set("x-ratelimit-remaining", rateResult.remaining.toString());
+    response.headers.set("x-ratelimit-reset", rateResult.reset.toString());
+    return response;
+  }
 
-  if (studentError) {
-    if (studentError.code === "PGRST116") {
+  const db = getDb();
+  try {
+    // 1. Fetch student
+    const studentRes = await db.execute({
+      sql: "SELECT id, full_name FROM students WHERE id = ? AND teacher_id = ?",
+      args: [studentId, userId]
+    });
+
+    if (studentRes.rows.length === 0) {
       throw new ApiError(404, "student not found");
     }
-    throw new ApiError(500, "failed to fetch student", studentError);
+    const student = studentRes.rows[0];
+
+    // 2. Fetch notes in range
+    const notesRes = await db.execute({
+      sql: `SELECT content, tag, created_at 
+            FROM student_notes 
+            WHERE student_id = ? AND teacher_id = ? AND created_at >= ? AND created_at < ? 
+            ORDER BY created_at ASC`,
+      args: [studentId, userId, monthStart.toISOString(), nextMonthStart.toISOString()]
+    });
+
+    const notes = notesRes.rows.map((row) => ({
+      content: row.content as string,
+      tag: row.tag as string | null,
+      created_at: row.created_at as string
+    }));
+
+    if (notes.length === 0) {
+      throw new ApiError(400, "no notes available for the selected month");
+    }
+
+    // 3. Generate monthly report
+    const prompt = buildMonthlyPrompt(student.full_name as string, monthStartDate, notes);
+    const report = await generateMonthlyReport(prompt);
+
+    const reportId = randomUUID();
+    const generatedAt = new Date().toISOString();
+
+    // 4. Save report with upsert
+    await db.execute({
+      sql: `INSERT INTO monthly_reports (id, student_id, teacher_id, month_start, overview, strengths, areas_to_monitor, generated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(student_id, month_start) 
+            DO UPDATE SET 
+              overview = excluded.overview, 
+              strengths = excluded.strengths, 
+              areas_to_monitor = excluded.areas_to_monitor, 
+              generated_at = excluded.generated_at`,
+      args: [reportId, studentId, userId, monthStartDate, report.overview, report.strengths, report.areasToMonitor, generatedAt]
+    });
+
+    // 5. Query saved report
+    const savedRes = await db.execute({
+      sql: `SELECT id, student_id, teacher_id, month_start, overview, strengths, areas_to_monitor, generated_at 
+            FROM monthly_reports 
+            WHERE student_id = ? AND month_start = ? AND teacher_id = ?`,
+      args: [studentId, monthStartDate, userId]
+    });
+
+    if (savedRes.rows.length === 0) {
+      throw new ApiError(500, "failed to retrieve saved report");
+    }
+
+    const saved = {
+      id: savedRes.rows[0].id,
+      student_id: savedRes.rows[0].student_id,
+      teacher_id: savedRes.rows[0].teacher_id,
+      month_start: savedRes.rows[0].month_start,
+      overview: savedRes.rows[0].overview,
+      strengths: savedRes.rows[0].strengths,
+      areas_to_monitor: savedRes.rows[0].areas_to_monitor,
+      generated_at: savedRes.rows[0].generated_at
+    };
+
+    const response = NextResponse.json(saved, { status: 200 });
+    response.headers.set("x-user-id", userId);
+    response.headers.set("x-request-id", requestId);
+    response.headers.set("x-ratelimit-limit", rateResult.limit.toString());
+    response.headers.set("x-ratelimit-remaining", rateResult.remaining.toString());
+    response.headers.set("x-ratelimit-reset", rateResult.reset.toString());
+    return response;
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    throw new ApiError(500, "failed to generate monthly report", err);
   }
-
-  if (!student) {
-    throw new ApiError(404, "student not found");
-  }
-
-  const { data: notes, error: notesError } = await supabase
-    .from("student_notes")
-    .select("content, tag, created_at")
-    .eq("student_id", studentId)
-    .eq("teacher_id", userId)
-    .gte("created_at", monthStart.toISOString())
-    .lt("created_at", nextMonthStart.toISOString())
-    .order("created_at", { ascending: true });
-
-  if (notesError) {
-    throw new ApiError(500, "failed to fetch notes", notesError);
-  }
-
-  if (!notes || notes.length === 0) {
-    throw new ApiError(400, "no notes available for the selected month");
-  }
-
-  const prompt = buildMonthlyPrompt(student.full_name, monthStartDate, notes);
-  const report = await generateMonthlyReport(prompt);
-
-  const { data: saved, error: saveError } = await supabase
-    .from("monthly_reports")
-    .upsert(
-      {
-        student_id: studentId,
-        teacher_id: userId,
-        month_start: monthStartDate,
-        overview: report.overview,
-        strengths: report.strengths,
-        areas_to_monitor: report.areasToMonitor,
-        generated_at: new Date().toISOString()
-      },
-      { onConflict: "student_id,month_start" }
-    )
-    .select("id, student_id, teacher_id, month_start, overview, strengths, areas_to_monitor, generated_at")
-    .single();
-
-  if (saveError) {
-    throw new ApiError(500, "failed to save report", saveError);
-  }
-
-  const response = NextResponse.json(saved, { status: 200 });
-  response.headers.set("x-user-id", userId);
-  response.headers.set("x-request-id", requestId);
-  response.headers.set("x-ratelimit-limit", rateResult.limit.toString());
-  response.headers.set("x-ratelimit-remaining", rateResult.remaining.toString());
-  response.headers.set("x-ratelimit-reset", rateResult.reset.toString());
-  return response;
 });
 
 function parseMonthStart(raw: string | undefined): Date {
