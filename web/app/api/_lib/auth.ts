@@ -1,13 +1,11 @@
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { jwtVerify } from "jose";
 import { ApiError } from "./api-error";
 import { requireEnv } from "./env";
-
-let authClient: SupabaseClient | null = null;
 
 export type AuthContext = {
   userId: string;
   token: string;
-  supabase: SupabaseClient;
+  email: string;
 };
 
 export async function requireAuth(request: Request): Promise<AuthContext> {
@@ -18,39 +16,34 @@ export async function requireAuth(request: Request): Promise<AuthContext> {
 
   const env = requireEnv();
 
-  if (!authClient) {
-    authClient = createClient(env.supabaseUrl, env.supabaseAnonKey, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false
-      }
-    });
-  }
+  try {
+    const secret = new TextEncoder().encode(env.jwtSecret);
+    const { payload } = await jwtVerify(token, secret);
 
-  const { data, error } = await authClient.auth.getUser(token);
-  if (error || !data.user) {
-    throw new ApiError(401, "invalid or expired token", error);
-  }
+    const userId = payload.sub;
+    const email = payload.email as string;
 
-  (request as { __userId?: string }).__userId = data.user.id;
-
-  const supabase = createClient(env.supabaseUrl, env.supabaseAnonKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false
-    },
-    global: {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
+    if (!userId || !email) {
+      throw new ApiError(401, "invalid token payload");
     }
-  });
 
-  return {
-    userId: data.user.id,
-    token,
-    supabase
-  };
+    const { getDb } = await import("@/lib/db");
+    const db = getDb();
+    await db.execute({
+      sql: "INSERT INTO teachers (id, email) VALUES (?, ?) ON CONFLICT(email) DO NOTHING",
+      args: [userId, email]
+    });
+
+    (request as { __userId?: string }).__userId = userId;
+
+    return {
+      userId,
+      token,
+      email
+    };
+  } catch (err) {
+    throw new ApiError(401, "invalid or expired token", err);
+  }
 }
 
 function readBearerToken(request: Request): string | null {

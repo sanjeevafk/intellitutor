@@ -1,8 +1,14 @@
 import type { Duration } from "@upstash/ratelimit";
+import * as fs from "fs";
+import * as path from "path";
 
 type EnvConfig = {
-  supabaseUrl: string;
-  supabaseAnonKey: string;
+  tursoDatabaseUrl: string;
+  tursoAuthToken: string;
+  jwtSecret: string;
+  googleClientId: string;
+  googleClientSecret: string;
+  nextPublicAppUrl: string;
   geminiApiKey: string;
   upstashRedisUrl: string;
   upstashRedisToken: string;
@@ -16,12 +22,46 @@ type EnvConfig = {
 let cachedEnv: EnvConfig | null = null;
 
 export function requireEnv(): EnvConfig {
+  if (process.env.NODE_ENV === "development") {
+    cachedEnv = null;
+  }
+
   if (cachedEnv) {
     return cachedEnv;
   }
 
-  const supabaseUrl = (process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").trim();
-  const supabaseAnonKey = (process.env.SUPABASE_ANON_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "").trim();
+  // Load .env.local dynamically in development
+  try {
+    const envPath = path.join(process.cwd(), ".env.local");
+    if (fs.existsSync(envPath)) {
+      const content = fs.readFileSync(envPath, "utf8");
+      for (const line of content.split("\n")) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#")) continue;
+        const index = trimmed.indexOf("=");
+        if (index !== -1) {
+          const key = trimmed.substring(0, index).trim();
+          let value = trimmed.substring(index + 1).trim();
+          if (value.startsWith('"') && value.endsWith('"')) {
+            value = value.substring(1, value.length - 1);
+          } else if (value.startsWith("'") && value.endsWith("'")) {
+            value = value.substring(1, value.length - 1);
+          }
+          process.env[key] = value;
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Failed to load .env.local dynamically:", err);
+  }
+
+
+  const tursoDatabaseUrl = (process.env.TURSO_DATABASE_URL ?? "").trim();
+  const tursoAuthToken = (process.env.TURSO_AUTH_TOKEN ?? "").trim();
+  const jwtSecret = (process.env.JWT_SECRET ?? "").trim();
+  const googleClientId = (process.env.GOOGLE_CLIENT_ID ?? "").trim();
+  const googleClientSecret = (process.env.GOOGLE_CLIENT_SECRET ?? "").trim();
+  const nextPublicAppUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "").trim();
   const geminiApiKey = (process.env.GEMINI_API_KEY ?? "").trim();
   const upstashRedisUrl = (process.env.UPSTASH_REDIS_REST_URL ?? "").trim();
   const upstashRedisToken = (process.env.UPSTASH_REDIS_REST_TOKEN ?? "").trim();
@@ -29,8 +69,11 @@ export function requireEnv(): EnvConfig {
   const rateLimitTestMode = (process.env.RATE_LIMIT_TEST_MODE ?? "").trim() === "1";
 
   const missing: string[] = [];
-  if (!supabaseUrl) missing.push("SUPABASE_URL");
-  if (!supabaseAnonKey) missing.push("SUPABASE_ANON_KEY");
+  if (!tursoDatabaseUrl) missing.push("TURSO_DATABASE_URL");
+  if (!jwtSecret) missing.push("JWT_SECRET");
+  if (!googleClientId) missing.push("GOOGLE_CLIENT_ID");
+  if (!googleClientSecret) missing.push("GOOGLE_CLIENT_SECRET");
+  if (!nextPublicAppUrl) missing.push("NEXT_PUBLIC_APP_URL");
   if (!geminiApiKey && !geminiTestMode) missing.push("GEMINI_API_KEY");
   if (!upstashRedisUrl && !rateLimitTestMode) missing.push("UPSTASH_REDIS_REST_URL");
   if (!upstashRedisToken && !rateLimitTestMode) missing.push("UPSTASH_REDIS_REST_TOKEN");
@@ -40,8 +83,12 @@ export function requireEnv(): EnvConfig {
   }
 
   cachedEnv = {
-    supabaseUrl: normalizeSupabaseUrl(supabaseUrl),
-    supabaseAnonKey,
+    tursoDatabaseUrl,
+    tursoAuthToken,
+    jwtSecret,
+    googleClientId,
+    googleClientSecret,
+    nextPublicAppUrl,
     geminiApiKey,
     upstashRedisUrl,
     upstashRedisToken,
@@ -68,13 +115,4 @@ function parseDurationOrDefault(value: string | undefined, fallback: Duration): 
     return raw as Duration;
   }
   return fallback;
-}
-
-function normalizeSupabaseUrl(rawUrl: string): string {
-  let url = rawUrl.trim();
-  url = url.replace(/\/+$/, "");
-  if (url.endsWith("/auth/v1")) {
-    url = url.slice(0, -"/auth/v1".length);
-  }
-  return url;
 }
