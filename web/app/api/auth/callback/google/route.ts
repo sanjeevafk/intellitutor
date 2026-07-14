@@ -3,16 +3,52 @@ import { requireEnv } from "../../../_lib/env";
 import { getDb } from "../../../../../lib/db";
 import { SignJWT } from "jose";
 import { randomUUID } from "crypto";
+import { cookies } from "next/headers";
 
 export async function GET(request: Request) {
   const env = requireEnv();
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
-  const state = url.searchParams.get("state") || `${env.nextPublicAppUrl}/auth/callback`;
+  const state = url.searchParams.get("state") || "";
 
   if (!code) {
     return NextResponse.redirect(`${env.nextPublicAppUrl}/login?error=no_authorization_code`);
   }
+
+  // Parse state token and client redirect URI
+  let clientRedirectUri = `${env.nextPublicAppUrl}/auth/callback`;
+  let parsedStateToken = "";
+
+  if (state) {
+    const parts = state.split(":");
+    if (parts.length === 2) {
+      parsedStateToken = parts[0];
+      try {
+        clientRedirectUri = Buffer.from(parts[1], "base64url").toString("utf8");
+      } catch (err) {
+        console.error("Failed to decode client redirect URI:", err);
+      }
+    } else {
+      // Fallback for legacy flows
+      clientRedirectUri = state;
+    }
+  }
+
+  // CSRF validation
+  if (!parsedStateToken) {
+    return NextResponse.redirect(`${env.nextPublicAppUrl}/login?error=csrf_verification_failed`);
+  }
+
+  const cookieStore = await cookies();
+  const storedState = cookieStore.get("oauth_state")?.value;
+
+  if (!storedState || storedState !== parsedStateToken) {
+    console.error("CSRF token verification failed");
+    return NextResponse.redirect(`${env.nextPublicAppUrl}/login?error=csrf_verification_failed`);
+  }
+
+  // Clear state cookie
+  cookieStore.delete("oauth_state");
 
   try {
     // 1. Exchange auth code for tokens
@@ -83,7 +119,7 @@ export async function GET(request: Request) {
       .sign(secret);
 
     // 5. Redirect back to frontend
-    const redirectUrl = new URL(state);
+    const redirectUrl = new URL(clientRedirectUri);
     redirectUrl.searchParams.set("token", customToken);
 
     return NextResponse.redirect(redirectUrl.toString());
@@ -92,3 +128,4 @@ export async function GET(request: Request) {
     return NextResponse.redirect(`${env.nextPublicAppUrl}/login?error=authentication_exception`);
   }
 }
+
