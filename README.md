@@ -186,6 +186,24 @@ cp .env.local.example .env.local   # Fill in variables as described below
 npm run dev
 ```
 
+### Running with Docker
+
+You can build and run the application locally using Docker and Docker Compose:
+
+1. **Configure Environment Variables:**
+   Ensure you have created `web/.env.local` and filled in all required values (such as `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `JWT_SECRET`).
+
+2. **Start the Containers:**
+   From the project root directory, run:
+   ```bash
+   docker compose up --build
+   ```
+   This compiles the optimized Next.js production image in standalone mode and exposes the server on `http://localhost:3000`.
+
+3. **SQLite Database Persistence:**
+   By default, `docker-compose.yml` mounts a persistent Docker volume (`tutor_dashboard_sqlite_data`) and overrides `TURSO_DATABASE_URL` to point to `/app/data/local.db`. This keeps database writes safe across container builds and updates.
+
+
 ### Environment variables
 
 Create `web/.env.local`:

@@ -1,6 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  output: "standalone",
   turbopack: {
     // Explicitly set the project root to avoid workspace root misdetection
     // after upgrading Next.js. Without this, Turbopack can infer the wrong
@@ -10,3 +11,4 @@ const nextConfig = {
 };
 
 module.exports = nextConfig;
+

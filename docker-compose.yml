@@ -1,0 +1,23 @@
+services:
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    # Loads environment variables from the web/.env.local file automatically
+    env_file:
+      - ./web/.env.local
+    environment:
+      - NODE_ENV=production
+      - HOSTNAME=0.0.0.0
+      # If using local file SQLite, override the database URL to write to the persistent volume mount
+      - TURSO_DATABASE_URL=${TURSO_DATABASE_URL:-file:/app/data/local.db}
+    volumes:
+      # Persistent volume mount for local SQLite database file storage
+      - sqlite_data:/app/data
+    restart: always
+
+volumes:
+  sqlite_data:
+    name: tutor_dashboard_sqlite_data
