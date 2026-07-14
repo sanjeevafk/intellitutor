@@ -66,6 +66,11 @@ Thumbs.db
 *.db
 *.bak
 *.tmp
+
+# Test fixtures and debug scripts
+web/test_students.csv
+web/generate_tokens.mjs
+web/scripts/test-db-connection.mjs
 *.orig
 *.rej
 *.pid
