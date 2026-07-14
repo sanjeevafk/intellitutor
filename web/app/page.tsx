@@ -5,7 +5,7 @@ export default function HomePage() {
     <div className="landing">
 
       <section className="hero">
-        <p className="eyebrow">Tutor Intelligence</p>
+        <p className="eyebrow">IntelliTutor</p>
         <h1 className="hero-headline">
           Teaching,<br />made <em>visible.</em>
         </h1>
@@ -46,7 +46,7 @@ export default function HomePage() {
       </section>
 
       <footer className="landing-footer">
-        © {new Date().getFullYear()} Tutor Intelligence
+        © {new Date().getFullYear()} IntelliTutor
       </footer>
 
     </div>

@@ -287,7 +287,7 @@ export default function DashboardPage() {
       <section className="card dashboard-controls">
         <div className="dashboard-header">
           <div>
-            <p className="dashboard-kicker">Tutor Workspace</p>
+            <p className="dashboard-kicker">IntelliTutor Workspace</p>
             <h1 className="dashboard-title">Dashboard</h1>
             <p className="helper">Track activity, filter fast, and jump to student notes.</p>
           </div>

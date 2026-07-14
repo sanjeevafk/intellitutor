@@ -4,8 +4,8 @@ import { SWRProvider } from "./providers";
 import ThemeToggle from "./theme-toggle";
 
 export const metadata = {
-  title: "Tutor Intelligence Dashboard",
-  description: "Tutor Intelligence Dashboard",
+  title: "IntelliTutor",
+  description: "IntelliTutor - AI-Powered Tutor Intelligence Dashboard",
   icons: {
     icon: "/favicon.ico"
   }
